@@ -119,6 +119,9 @@ export class LocalDB {
   static getJadwal(): Jadwal[] {
     return this.getStored<Jadwal[]>('sch_jadwal', []);
   }
+  static getHariAktif(): Hari[] {
+    return this.getStored<Hari[]>('sch_hari_aktif', ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']);
+  }
 
   // --- SAVE ALL ---
   static saveGuru(data: Guru[]) { this.setStored('sch_guru', data); this.recalculateConflicts(); }
@@ -129,6 +132,7 @@ export class LocalDB {
   static savePengampu(data: PengampuMataPelajaran[]) { this.setStored('sch_pengampu', data); this.recalculateConflicts(); }
   static savePreferensi(data: PreferensiGuru[]) { this.setStored('sch_preferensi', data); this.recalculateConflicts(); }
   static saveJadwal(data: Jadwal[]) { this.setStored('sch_jadwal', data); this.recalculateConflicts(); }
+  static saveHariAktif(data: Hari[]) { this.setStored('sch_hari_aktif', data); this.recalculateConflicts(); }
 
   // --- RESET TO DEFAULTS ---
   static resetToDefault() {
@@ -277,7 +281,7 @@ export class LocalDB {
       const pref = preferences.find(p => p.guru_id === g.id);
       const maxHr = pref?.max_jam_per_hari ?? 6;
       
-      const hariList: Hari[] = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      const hariList: Hari[] = this.getHariAktif();
       for (const h of hariList) {
         const teacherDailySchedules = schedules.filter(s => s.guru_id === g.id && s.hari === h);
         if (teacherDailySchedules.length > maxHr) {

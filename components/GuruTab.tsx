@@ -18,6 +18,7 @@ interface GuruTabProps {
     jam_favorit: number[];
     max_jam_per_hari: number;
   }) => void;
+  hariAktif: Hari[];
 }
 
 export default function GuruTab({
@@ -27,7 +28,8 @@ export default function GuruTab({
   setNewGuru,
   handleAddGuru,
   handleDeleteGuru,
-  onSavePreferensi
+  onSavePreferensi,
+  hariAktif
 }: GuruTabProps) {
   // Preference modal states
   const [preferensiModalGuruId, setPreferensiModalGuruId] = useState<string | null>(null);
@@ -289,7 +291,7 @@ export default function GuruTab({
                   <div>
                     <span className="block text-[11px] text-slate-500 mb-1.5 font-semibold">Hari Berhalangan Mengajar:</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'].map((d) => (
+                      {hariAktif.map((d) => (
                         <button
                           key={d}
                           type="button"
@@ -328,7 +330,7 @@ export default function GuruTab({
                   <div>
                     <span className="block text-[11px] text-slate-500 mb-1.5 font-semibold">Hari Paling Disukai:</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'].map((d) => (
+                      {hariAktif.map((d) => (
                         <button
                           key={d}
                           type="button"

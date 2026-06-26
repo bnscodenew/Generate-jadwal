@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Users, 
   Layers, 
@@ -11,9 +11,16 @@ import {
   Trash2, 
   CheckCircle2, 
   HelpCircle, 
-  Info 
+  Info,
+  Download,
+  Upload,
+  BarChart3,
+  Database,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
-import { Guru, Kelas, MataPelajaran, Jadwal, KonflikJadwal } from '../lib/types';
+import { Guru, Kelas, MataPelajaran, Jadwal, KonflikJadwal, PengampuMataPelajaran } from '../lib/types';
+import { LocalDB } from '../lib/db';
 
 interface DashboardTabProps {
   guru: Guru[];
@@ -21,8 +28,11 @@ interface DashboardTabProps {
   mapel: MataPelajaran[];
   jadwal: Jadwal[];
   conflicts: KonflikJadwal[];
+  pengampu: PengampuMataPelajaran[];
   setActiveTab: (tab: string) => void;
   handleClearJadwal: () => void;
+  loadDatabase: () => void;
+  setLogMessages: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 export default function DashboardTab({
@@ -31,9 +41,120 @@ export default function DashboardTab({
   mapel,
   jadwal,
   conflicts,
+  pengampu,
   setActiveTab,
-  handleClearJadwal
+  handleClearJadwal,
+  loadDatabase,
+  setLogMessages
 }: DashboardTabProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<boolean>(false);
+
+  // Calculate teacher workloads
+  const teacherWorkloads = guru
+    .filter(g => g.status_aktif)
+    .map(g => {
+      // 1. Target hours: sum from pengampu
+      const targetHours = pengampu
+        .filter(p => p.guru_id === g.id)
+        .reduce((sum, curr) => sum + curr.jumlah_jam, 0);
+
+      // 2. Scheduled hours: sum from schedules
+      const scheduledHours = jadwal.filter(j => j.guru_id === g.id).length;
+
+      const percentage = targetHours > 0 ? Math.round((scheduledHours / targetHours) * 100) : 0;
+
+      return {
+        id: g.id,
+        nama: g.nama,
+        targetHours,
+        scheduledHours,
+        percentage
+      };
+    })
+    .sort((a, b) => b.targetHours - a.targetHours); // Sort by teaching weight
+
+  // Export system backup to JSON
+  const handleExportBackup = () => {
+    try {
+      const dataBackup = {
+        app: 'Jadwal Sekolah Otomatis',
+        version: '1.2',
+        exportedAt: new Date().toISOString(),
+        tables: {
+          guru: LocalDB.getGuru(),
+          mapel: LocalDB.getMapel(),
+          kelas: LocalDB.getKelas(),
+          ruangan: LocalDB.getRuangan(),
+          jamPelajaran: LocalDB.getJamPelajaran(),
+          pengampu: LocalDB.getPengampu(),
+          preferensi: LocalDB.getPreferensi(),
+          jadwal: LocalDB.getJadwal(),
+        }
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataBackup, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `backup_jadwal_sekolah_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      setLogMessages(prev => ['Berhasil mengekspor data cadangan sistem (JSON).', ...prev]);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Gagal mengekspor data cadangan.');
+    }
+  };
+
+  // Import system backup from JSON
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        if (!parsed.tables || !parsed.app) {
+          throw new Error('Format file cadangan tidak valid (Missing tables or metadata).');
+        }
+
+        const t = parsed.tables;
+
+        // Save back via LocalDB wrapper methods
+        if (t.guru) LocalDB.saveGuru(t.guru);
+        if (t.mapel) LocalDB.saveMapel(t.mapel);
+        if (t.kelas) LocalDB.saveKelas(t.kelas);
+        if (t.ruangan) LocalDB.saveRuangan(t.ruangan);
+        if (t.jamPelajaran) LocalDB.saveJamPelajaran(t.jamPelajaran);
+        if (t.pengampu) LocalDB.savePengampu(t.pengampu);
+        if (t.preferensi) LocalDB.savePreferensi(t.preferensi);
+        if (t.jadwal) LocalDB.saveJadwal(t.jadwal);
+
+        // Recalculate and load
+        LocalDB.recalculateConflicts();
+        loadDatabase();
+
+        setImportSuccess(true);
+        setImportError(null);
+        setLogMessages(prev => ['Berhasil mengimpor dan memulihkan seluruh data cadangan sistem!', ...prev]);
+
+        setTimeout(() => {
+          setImportSuccess(false);
+        }, 4000);
+      } catch (err: any) {
+        setImportError(err.message || 'Gagal memproses file cadangan.');
+        setImportSuccess(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -41,22 +162,63 @@ export default function DashboardTab({
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">Ringkasan Sistem</h2>
           <p className="text-sm text-slate-500">Ikhtisar data kurikulum sekolah dan kualitas jadwal pelajaran saat ini.</p>
         </div>
-        {jadwal.length === 0 ? (
+        
+        <div className="flex flex-wrap items-center gap-2">
+          {/* BACKUP EXPORT & IMPORT BUTTONS */}
           <button 
-            onClick={() => setActiveTab('generate')}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition shadow-xs text-sm cursor-pointer"
+            onClick={handleExportBackup}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+            title="Ekspor seluruh data input dan jadwal sebagai file cadangan JSON"
           >
-            <Play className="w-4 h-4" /> Susun Jadwal Instan Sekarang
+            <Download className="w-3.5 h-3.5" /> Ekspor Cadangan
           </button>
-        ) : (
+          
           <button 
-            onClick={handleClearJadwal}
-            className="flex items-center gap-2 px-3.5 py-2 bg-rose-55 hover:bg-rose-100 text-rose-700 border border-rose-220 rounded-lg text-xs font-semibold transition cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+            title="Impor file cadangan JSON untuk memulihkan seluruh konfigurasi"
           >
-            <Trash2 className="w-4 h-4" /> Kosongkan Jadwal
+            <Upload className="w-3.5 h-3.5" /> Impor Cadangan
           </button>
-        )}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImportBackup} 
+            accept=".json" 
+            className="hidden" 
+          />
+
+          {jadwal.length === 0 ? (
+            <button 
+              onClick={() => setActiveTab('generate')}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition shadow-xs text-sm cursor-pointer"
+            >
+              <Play className="w-4 h-4" /> Susun Jadwal Instan Sekarang
+            </button>
+          ) : (
+            <button 
+              onClick={handleClearJadwal}
+              className="flex items-center gap-2 px-3.5 py-2 bg-rose-55 hover:bg-rose-100 text-rose-700 border border-rose-220 rounded-lg text-xs font-semibold transition cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" /> Kosongkan Jadwal
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* BACKUP NOTIFICATION BANNER */}
+      {importSuccess && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs flex items-center gap-2 animate-fade-in font-semibold">
+          <CheckCircle className="w-4 h-4 text-emerald-600" />
+          <span>Restorasi data sukses! Seluruh data input kurikulum, preferensi, dan struktur jadwal telah dipulihkan.</span>
+        </div>
+      )}
+      {importError && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-850 text-xs flex items-center gap-2 animate-fade-in font-semibold">
+          <AlertCircle className="w-4 h-4 text-rose-600" />
+          <span>Gagal mengimpor: {importError}</span>
+        </div>
+      )}
 
       {/* KPI STATS BAR */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -197,6 +359,74 @@ export default function DashboardTab({
           </div>
         </div>
 
+      </div>
+
+      {/* TEACHER WORKLOAD ANALYSIS SECTION */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h4 className="text-slate-900 font-bold text-sm flex items-center gap-2">
+            <BarChart3 className="w-4.5 h-4.5 text-indigo-600" /> Analisis Alokasi Jam &amp; Beban Kerja Guru
+          </h4>
+          <span className="text-[10px] font-mono text-slate-500 font-bold">Terjadwal vs Target Pengampu</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {teacherWorkloads.length === 0 ? (
+            <div className="col-span-full text-center py-6 text-xs text-slate-400 italic">
+              Belum ada data guru pengampu mata pelajaran.
+            </div>
+          ) : (
+            teacherWorkloads.map(w => {
+              // Color calculation for workloads
+              let progressColor = "bg-indigo-600";
+              let badgeColor = "bg-amber-100 text-amber-800 border-amber-200";
+              let statusText = "Kurang";
+
+              if (w.percentage === 100) {
+                progressColor = "bg-emerald-500";
+                badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
+                statusText = "Selesai";
+              } else if (w.percentage > 100) {
+                progressColor = "bg-rose-500";
+                badgeColor = "bg-rose-100 text-rose-800 border-rose-200";
+                statusText = `Overload (+${w.scheduledHours - w.targetHours} Jam)`;
+              } else if (w.percentage >= 75) {
+                progressColor = "bg-sky-500";
+                badgeColor = "bg-sky-100 text-sky-800 border-sky-200";
+                statusText = "Hampir Selesai";
+              }
+
+              return (
+                <div key={w.id} className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-col justify-between gap-2 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h5 className="font-bold text-slate-800 truncate max-w-[150px]" title={w.nama}>
+                        {w.nama}
+                      </h5>
+                      <p className="text-[10px] text-slate-500 font-medium">Target: {w.targetHours} Jam | Terjadwal: {w.scheduledHours} Jam</p>
+                    </div>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${badgeColor}`}>
+                      {statusText}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-mono font-bold text-slate-500">
+                      <span>Progres</span>
+                      <span>{w.percentage}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden shadow-inner border border-slate-300">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${progressColor}`} 
+                        style={{ width: `${Math.min(w.percentage, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

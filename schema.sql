@@ -1,15 +1,17 @@
-export const SUPABASE_SQL_MIGRATION = `-- =========================================================================
--- SQL MIGRATION: SISTEM PENJADWALAN JADWAL PELAJARAN SEKOLAH OTOMATIS
+-- =========================================================================
+-- SQL SCHEMA FINAL: SISTEM PENJADWALAN JADWAL PELAJARAN SEKOLAH OTOMATIS
 -- Target Database: PostgreSQL / Supabase
--- Fitur: Multi-User Isolation (Satu Akun Satu Database) Menggunakan Row Level Security (RLS)
--- Tanggal Pembuatan: 2026-06-25
+-- Fitur Utama: Multi-User Isolation (Row Level Security / RLS), Deteksi Konflik,
+--               Kustomisasi Hari Kerja Dinamis (Senin - Minggu), & Kalender Belajar.
+-- Tanggal Pembuatan / Update: 26 Juni 2026
 -- =========================================================================
 
--- Enable UUID Extension
+-- Enable UUID Extension untuk auto-generasi UUID v4
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- =========================================================================
--- 1. TABLE: profiles (Menyimpan nama sekolah dan metadata pengguna)
+-- 1. TABLE: profiles
+-- Menyimpan profil sekolah dari pengguna (setiap akun memiliki 1 data sekolah)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -36,6 +38,7 @@ CREATE POLICY "Pengguna dapat memasukkan data profil baru saat register"
 
 -- =========================================================================
 -- 2. TABLE: teachers (Guru)
+-- Menyimpan biodata guru pengajar
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.teachers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -59,6 +62,7 @@ CREATE POLICY "Pengguna hanya dapat mengelola data guru milik sendiri"
 
 -- =========================================================================
 -- 3. TABLE: subjects (Mata Pelajaran)
+-- Menyimpan mata pelajaran yang tersedia di sekolah
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.subjects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -80,6 +84,7 @@ CREATE POLICY "Pengguna hanya dapat mengelola data mapel milik sendiri"
 
 -- =========================================================================
 -- 4. TABLE: classes (Kelas)
+-- Menyimpan nama kelas dan tingkat (misalnya: Kelas X, XI, XII)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.classes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -101,6 +106,7 @@ CREATE POLICY "Pengguna hanya dapat mengelola data kelas milik sendiri"
 
 -- =========================================================================
 -- 5. TABLE: rooms (Ruangan)
+-- Menyimpan nama kelas fisik / laboratorium / ruang kelas pengajaran
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.rooms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -121,6 +127,7 @@ CREATE POLICY "Pengguna hanya dapat mengelola data ruangan milik sendiri"
 
 -- =========================================================================
 -- 6. TABLE: periods (Jam Pelajaran)
+-- Mengatur nomor urutan jam ke- beserta waktu mulai dan selesai
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.periods (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -142,15 +149,16 @@ CREATE POLICY "Pengguna hanya dapat mengelola data jam pelajaran milik sendiri"
 
 -- =========================================================================
 -- 7. TABLE: teacher_preferences (Preferensi Guru)
+-- Menyimpan batasan hari tidak bersedia, jam tidak bersedia, serta hari favorit
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.teacher_preferences (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
     guru_id UUID NOT NULL REFERENCES public.teachers(id) ON DELETE CASCADE,
-    hari_tidak_bersedia VARCHAR(20)[] DEFAULT '{}', -- Array of Hari names, eg. {'Senin', 'Jumat'}
-    jam_tidak_bersedia INTEGER[] DEFAULT '{}',     -- Array of integers jam_ke, eg. {1, 8}
-    hari_favorit VARCHAR(20)[] DEFAULT '{}',        -- Array of favorite Hari names
-    jam_favorit INTEGER[] DEFAULT '{}',            -- Array of favorite jam_ke numbers
+    hari_tidak_bersedia VARCHAR(20)[] DEFAULT '{}', -- Array hari, cth: {'Senin', 'Jumat'}
+    jam_tidak_bersedia INTEGER[] DEFAULT '{}',     -- Array jam_ke, cth: {1, 2}
+    hari_favorit VARCHAR(20)[] DEFAULT '{}',        -- Array hari favorit
+    jam_favorit INTEGER[] DEFAULT '{}',            -- Array jam_ke favorit
     max_jam_per_hari INTEGER DEFAULT 6,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT unique_teacher_pref_per_user UNIQUE (user_id, guru_id)
@@ -166,6 +174,7 @@ CREATE POLICY "Pengguna hanya dapat mengelola data preferensi guru milik sendiri
 
 -- =========================================================================
 -- 8. TABLE: teaching_assignments (Pengampu Mata Pelajaran)
+-- Menghubungkan Guru, Mata Pelajaran, Kelas, dan beban jam mengajar per minggu
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.teaching_assignments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -187,7 +196,8 @@ CREATE POLICY "Pengguna hanya dapat mengelola data pengampu milik sendiri"
 
 
 -- =========================================================================
--- 9. TABLE: schedules (Jadwal Pelajaran)
+-- 9. TABLE: schedules (Jadwal Pelajaran Hasil Komputasi)
+-- Menampung jadwal pelajaran yang ter-plotting secara sah & bebas bentrok
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.schedules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -211,7 +221,8 @@ CREATE POLICY "Pengguna hanya dapat mengelola data jadwal milik sendiri"
 
 
 -- =========================================================================
--- 10. TABLE: schedule_conflicts (Detail Deteksi Konflik)
+-- 10. TABLE: schedule_conflicts (Hasil Validasi Bentrokan)
+-- Digunakan untuk logging konflik apabila admin mengubah jadwal secara manual
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.schedule_conflicts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -233,7 +244,7 @@ CREATE POLICY "Pengguna hanya dapat mengelola data konflik milik sendiri"
 
 
 -- =========================================================================
--- INDEX OPTIMIZATION UNTUK KECEPATAN PENJADWALAN DAN QUERY MULTI-TENANT
+-- INDEKS OPTIMASI UNTUK PENINGKATAN KECEPATAN PENJADWALAN & MULTI-TENANCY
 -- =========================================================================
 CREATE INDEX IF NOT EXISTS idx_schedules_lookup_v2 ON public.schedules (user_id, hari, jam_ke);
 CREATE INDEX IF NOT EXISTS idx_schedules_guru_v2 ON public.schedules (user_id, guru_id, hari, jam_ke);
@@ -243,10 +254,8 @@ CREATE INDEX IF NOT EXISTS idx_teaching_assignments_composite_v2 ON public.teach
 
 
 -- =========================================================================
--- PEMBUATAN OTOMATIS PROFIL SAAT REGISTRASI SUPABASE AUTH (TRIGGER)
+-- PROFIL OTOMATIS SAAT USER BARU TERDAFTAR (TRIGGER AUTH SUPABASE)
 -- =========================================================================
--- Skrip di bawah ini otomatis membuat entri profil saat user mendaftar melalui Auth Supabase.
--- Anda dapat menggunakannya jika mengintegrasikannya dengan Supabase Auth secara penuh.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -259,25 +268,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger dijalankan setelah user baru berhasil dibuat di auth.users
+-- Silakan aktifkan trigger di bawah jika mengintegrasikannya secara langsung di konsol SQL Supabase:
 -- DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 -- CREATE TRIGGER on_auth_user_created
 --   AFTER INSERT ON auth.users
 --   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
-
--- =========================================================================
--- DEFAULT SEED DATA: JAM PELAJARAN STANDAR (UNTUK USER_ID TERTENTU)
--- Note: Jalankan perintah insert periods ini ketika user pertama kali login/dibuat.
--- =========================================================================
--- INSERT INTO public.periods (user_id, jam_ke, jam_mulai, jam_selesai) VALUES
--- (auth.uid(), 1, '07:30:00', '08:15:00'),
--- (auth.uid(), 2, '08:15:00', '09:00:00'),
--- (auth.uid(), 3, '09:00:00', '09:45:00'),
--- (auth.uid(), 4, '10:00:00', '10:45:00'),
--- (auth.uid(), 5, '10:45:00', '11:30:00'),
--- (auth.uid(), 6, '11:30:00', '12:15:00'),
--- (auth.uid(), 7, '13:00:00', '13:45:00'),
--- (auth.uid(), 8, '13:45:00', '14:30:00');
-`;
-

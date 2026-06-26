@@ -26,7 +26,7 @@ export class CalendarScheduler {
   private assignments: PengampuMataPelajaran[];
   private preferences: PreferensiGuru[];
 
-  private days: Hari[] = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  private days: Hari[];
 
   constructor(
     teachers: Guru[],
@@ -35,7 +35,8 @@ export class CalendarScheduler {
     rooms: Ruangan[],
     periods: JamPelajaran[],
     assignments: PengampuMataPelajaran[],
-    preferences: PreferensiGuru[]
+    preferences: PreferensiGuru[],
+    activeDays?: Hari[]
   ) {
     this.teachers = teachers.filter(t => t.status_aktif);
     this.subjects = subjects;
@@ -44,6 +45,7 @@ export class CalendarScheduler {
     this.periods = periods;
     this.assignments = assignments;
     this.preferences = preferences;
+    this.days = activeDays && activeDays.length > 0 ? activeDays : ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   }
 
   // Generate variables to schedule based on active teaching assignments
@@ -503,6 +505,31 @@ export class CalendarScheduler {
       return score;
     };
 
+    // Helper selection
+    const selectTournament = (pop: { chromo: Chromosome; fitness: number }[]) => {
+      const tournamentParticipants = 4;
+      let best = pop[Math.floor(Math.random() * pop.length)];
+      for (let i = 1; i < tournamentParticipants; i++) {
+        const cand = pop[Math.floor(Math.random() * pop.length)];
+        if (cand.fitness > best.fitness) {
+          best = cand;
+        }
+      }
+      return best;
+    };
+
+    // Helper mutate
+    const mutate = (chromo: Chromosome) => {
+      for (let i = 0; i < chromo.length; i++) {
+        if (Math.random() < MUTATION_RATE) {
+          const v = variables[i];
+          chromo[i].hari = this.days[Math.floor(Math.random() * this.days.length)];
+          chromo[i].jam_ke = periodsList[Math.floor(Math.random() * periodsList.length)];
+          chromo[i].ruangan_id = v.room_candidates[Math.floor(Math.random() * v.room_candidates.length)];
+        }
+      }
+    };
+
     // Create Initial Population
     let population: { chromo: Chromosome; fitness: number }[] = Array.from({ length: POPULATION_SIZE }, () => {
       const chromo = generateRandomChromosome();
@@ -583,31 +610,6 @@ export class CalendarScheduler {
     onProgress?.(`Algoritma Genetika selesai dengan Fitness Akhir: ${population[0].fitness}`);
 
     const endTime = performance.now();
-
-    // Helper selection
-    function selectTournament(pop: typeof population) {
-      const tournamentParticipants = 4;
-      let best = pop[Math.floor(Math.random() * pop.length)];
-      for (let i = 1; i < tournamentParticipants; i++) {
-        const cand = pop[Math.floor(Math.random() * pop.length)];
-        if (cand.fitness > best.fitness) {
-          best = cand;
-        }
-      }
-      return best;
-    }
-
-    // Helper mutate
-    function mutate(chromo: Chromosome) {
-      for (let i = 0; i < chromo.length; i++) {
-        if (Math.random() < MUTATION_RATE) {
-          const v = variables[i];
-          chromo[i].hari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][Math.floor(Math.random() * 6)] as Hari;
-          chromo[i].jam_ke = periodsList[Math.floor(Math.random() * periodsList.length)];
-          chromo[i].ruangan_id = v.room_candidates[Math.floor(Math.random() * v.room_candidates.length)];
-        }
-      }
-    }
 
     return {
       schedules: finalSchedules,

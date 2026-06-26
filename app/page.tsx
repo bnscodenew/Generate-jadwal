@@ -20,7 +20,8 @@ import {
   UserPlus,
   LogOut,
   Eye,
-  EyeOff
+  EyeOff,
+  Settings
 } from 'lucide-react';
 
 import { 
@@ -48,6 +49,7 @@ import GenerateTab from '../components/GenerateTab';
 import GridTab from '../components/GridTab';
 import KonflikTab from '../components/KonflikTab';
 import SupabaseTab from '../components/SupabaseTab';
+import PengaturanWaktuTab from '../components/PengaturanWaktuTab';
 
 export default function AdministrativeDashboard() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -63,6 +65,7 @@ export default function AdministrativeDashboard() {
   const [preferensi, setPreferensi] = useState<PreferensiGuru[]>([]);
   const [jadwal, setJadwal] = useState<Jadwal[]>([]);
   const [conflicts, setConflicts] = useState<KonflikJadwal[]>([]);
+  const [hariAktif, setHariAktif] = useState<Hari[]>([]);
 
   // Simulation settings
   const [algorithm, setAlgorithm] = useState<'csp' | 'genetic'>('csp');
@@ -106,6 +109,7 @@ export default function AdministrativeDashboard() {
     setPreferensi(LocalDB.getPreferensi());
     setJadwal(LocalDB.getJadwal());
     setConflicts(LocalDB.getConflicts());
+    setHariAktif(LocalDB.getHariAktif());
   };
 
   const handleSetActiveTab = (tab: string) => {
@@ -418,7 +422,8 @@ export default function AdministrativeDashboard() {
           ruangan,
           jamPelajaran,
           pengampu,
-          preferensi
+          preferensi,
+          hariAktif
         );
 
         let result;
@@ -519,12 +524,13 @@ export default function AdministrativeDashboard() {
 
   // --- COMPILING DETAILED TIMETABLE VIEWS FOR RENDER ---
   const filteredScheduleMatrix = useMemo(() => {
-    const matrix: { [key: number]: { [key in Hari]: Jadwal[] } } = {};
+    const matrix: { [key: number]: { [key in Hari]?: Jadwal[] } } = {};
 
     for (const p of jamPelajaran) {
-      matrix[p.jam_ke] = {
-        'Senin': [], 'Selasa': [], 'Rabu': [], 'Kamis': [], 'Jumat': [], 'Sabtu': []
-      };
+      matrix[p.jam_ke] = {};
+      for (const d of hariAktif) {
+        matrix[p.jam_ke][d] = [];
+      }
     }
 
     for (const s of jadwal) {
@@ -533,17 +539,17 @@ export default function AdministrativeDashboard() {
       if (filterType === 'guru' && s.guru_id === filterId) match = true;
       if (filterType === 'ruangan' && s.ruangan_id === filterId) match = true;
 
-      if (match && matrix[s.jam_ke]) {
-        matrix[s.jam_ke][s.hari].push(s);
+      if (match && matrix[s.jam_ke] && matrix[s.jam_ke][s.hari]) {
+        matrix[s.jam_ke][s.hari]!.push(s);
       }
     }
 
     return matrix;
-  }, [jadwal, filterType, filterId, jamPelajaran]);
+  }, [jadwal, filterType, filterId, jamPelajaran, hariAktif]);
 
   // --- EXPORTS TO EXCEL AND PDF ---
   const handleExportExcel = () => {
-    const daysArr: Hari[] = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const daysArr: Hari[] = hariAktif;
     const currentName = 
       filterType === 'kelas' ? (kelas.find(c => c.id === filterId)?.nama_kelas || 'Kelas') :
       filterType === 'guru' ? (guru.find(g => g.id === filterId)?.nama || 'Guru') :
@@ -823,7 +829,7 @@ export default function AdministrativeDashboard() {
         
         {/* SIDE BAR NAVIGATION */}
         <aside className={`shrink-0 border-slate-200 bg-white flex flex-col justify-between transition-all duration-300 ease-in-out z-50
-          fixed inset-y-0 left-0 lg:static lg:translate-x-0
+          fixed inset-y-0 left-0 lg:sticky lg:top-[73px] lg:h-[calc(100vh-73px)] overflow-y-auto lg:translate-x-0
           ${sidebarOpen 
             ? 'translate-x-0 w-72 p-4 border-r shadow-2xl lg:shadow-xs lg:w-64' 
             : '-translate-x-full w-72 p-4 border-r lg:w-0 lg:p-0 lg:border-r-0 lg:overflow-hidden lg:opacity-0 lg:pointer-events-none'
@@ -874,6 +880,13 @@ export default function AdministrativeDashboard() {
               className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all font-semibold cursor-pointer ${activeTab === 'pengampu' ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
             >
               <Clock className={`w-4 h-4 ${activeTab === 'pengampu' ? 'text-indigo-600' : 'text-slate-400'}`} /> Pengampu Pelajaran
+            </button>
+
+            <button 
+              onClick={() => handleSetActiveTab('pengaturan_waktu')} 
+              className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all font-semibold cursor-pointer ${activeTab === 'pengaturan_waktu' ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
+            >
+              <Settings className={`w-4 h-4 ${activeTab === 'pengaturan_waktu' ? 'text-indigo-600' : 'text-slate-400'}`} /> Pengaturan Kalender &amp; Jam
             </button>
 
             <div className="text-slate-400 font-mono text-[10px] tracking-widest px-2 mt-4 mb-2 uppercase border-t border-slate-100 pt-4 font-bold">Penjadwalan</div>
@@ -941,8 +954,11 @@ export default function AdministrativeDashboard() {
               mapel={mapel}
               jadwal={jadwal}
               conflicts={conflicts}
+              pengampu={pengampu}
               setActiveTab={handleSetActiveTab}
               handleClearJadwal={handleClearJadwal}
+              loadDatabase={loadDatabase}
+              setLogMessages={setLogMessages}
             />
           )}
 
@@ -955,6 +971,7 @@ export default function AdministrativeDashboard() {
               handleAddGuru={handleAddGuru}
               handleDeleteGuru={handleDeleteGuru}
               onSavePreferensi={handleSavePreferensi}
+              hariAktif={hariAktif}
             />
           )}
 
@@ -1030,6 +1047,19 @@ export default function AdministrativeDashboard() {
               handlePrintPDF={handlePrintPDF}
               filteredScheduleMatrix={filteredScheduleMatrix}
               setActiveTab={handleSetActiveTab}
+              hariAktif={hariAktif}
+              pengampu={pengampu}
+            />
+          )}
+
+          {activeTab === 'pengaturan_waktu' && (
+            <PengaturanWaktuTab
+              hariAktif={hariAktif}
+              jamPelajaran={jamPelajaran}
+              onUpdateHariAktif={setHariAktif}
+              onUpdateJamPelajaran={setJamPelajaran}
+              loadDatabase={loadDatabase}
+              setLogMessages={setLogMessages}
             />
           )}
 

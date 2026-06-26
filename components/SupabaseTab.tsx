@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Database, Info } from 'lucide-react';
+import { Database, Info, Activity, Clock, ShieldCheck, ExternalLink } from 'lucide-react';
 import { SUPABASE_SQL_MIGRATION } from '../lib/database-schema';
 
 interface SupabaseTabProps {
@@ -71,6 +71,92 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=&quot;anon-key-kamu&quot;
         </div>
 
       </div>
+
+      {/* FITUR TAMBAHAN: MODUL KEEP ALIVE & CRON-JOB.ORG GUIDE */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-xl p-6 text-white space-y-5 shadow-lg border border-indigo-500/30 font-sans">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-500/20 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-600/20 border border-indigo-400/30 rounded-lg">
+              <Activity className="w-6 h-6 text-indigo-400 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <span>Modul Keep Alive (Anti-Pause Supabase)</span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold border border-emerald-500/30">
+                  Ready to Use
+                </span>
+              </h3>
+              <p className="text-xs text-indigo-200/80 mt-1">
+                Database Supabase gratis akan secara otomatis di-pause jika tidak aktif selama 1 minggu. Gunakan endpoint keep-alive kami untuk menjaganya tetap aktif selamanya!
+              </p>
+            </div>
+          </div>
+          <a 
+            href="https://cron-job.org" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition whitespace-nowrap"
+          >
+            <span>Buka Cron-job.org</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs leading-relaxed">
+          {/* Langkah 1 */}
+          <div className="bg-slate-800/40 p-4 rounded-lg border border-slate-700/30 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center font-bold text-[10px]">1</span>
+              <h4 className="font-bold text-slate-100">Dapatkan Endpoint Keep Alive</h4>
+            </div>
+            <p className="text-slate-300">
+              Kami telah menyediakan API Route otomatis khusus untuk melakukan ping ringan (<code className="bg-slate-950 text-indigo-300 px-1 py-0.5 rounded font-mono font-bold text-[10px]">SELECT 1</code>) ke database Supabase Anda:
+            </p>
+            <div className="bg-slate-950/80 border border-slate-800 p-2 rounded text-[10px] font-mono text-indigo-300 select-all leading-normal overflow-x-auto">
+              https://domain-anda.vercel.app/api/keep-alive
+            </div>
+          </div>
+
+          {/* Langkah 2 */}
+          <div className="bg-slate-800/40 p-4 rounded-lg border border-slate-700/30 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center font-bold text-[10px]">2</span>
+              <h4 className="font-bold text-slate-100">Konfigurasi DATABASE_URL</h4>
+            </div>
+            <p className="text-slate-300">
+              Pastikan Anda telah mengisi variabel lingkungan di Vercel/environment:
+            </p>
+            <div className="bg-slate-950/80 border border-slate-800 p-2.5 rounded text-[10px] font-mono text-indigo-200 space-y-1">
+              <div className="font-bold text-slate-400 text-[9px] uppercase">Key:</div>
+              <div>DATABASE_URL</div>
+              <div className="font-bold text-slate-400 text-[9px] uppercase mt-1">Value:</div>
+              <div className="text-[9px] text-indigo-400 truncate">postgresql://postgres:[password]@db...</div>
+            </div>
+          </div>
+
+          {/* Langkah 3 */}
+          <div className="bg-slate-800/40 p-4 rounded-lg border border-slate-700/30 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center font-bold text-[10px]">3</span>
+              <h4 className="font-bold text-slate-100">Set-up Scheduler Gratis</h4>
+            </div>
+            <p className="text-slate-300">
+              Daftarkan akun gratis di <strong className="text-white">cron-job.org</strong> dan buat Cronjob baru:
+            </p>
+            <ul className="list-disc pl-4 space-y-1 text-slate-300 text-[11px]">
+              <li><strong>URL:</strong> Berikan link API Keep Alive (Langkah 1).</li>
+              <li><strong>Execution:</strong> Setiap 12 jam sekali sudah sangat cukup.</li>
+              <li><strong>Request:</strong> Metode GET (Default).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-[10px] text-indigo-300/80 bg-indigo-950/50 p-3 rounded-lg border border-indigo-500/10">
+          <Clock className="w-4 h-4 text-indigo-400 shrink-0" />
+          <span>Keuntungan Menggunakan Endpoint: Query dieksekusi dengan aman melalui serverless function Vercel menggunakan koneksi aman PostgreSQL sehingga kredensial database Anda tidak pernah bocor ke sisi klien.</span>
+        </div>
+      </div>
+
     </div>
   );
 }
