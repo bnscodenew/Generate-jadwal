@@ -33,21 +33,35 @@ export function saveSupabaseConfig(url: string, key: string) {
   }
 }
 
+// Global variable to cache the Supabase client instance
+let cachedSupabaseClient: any = null;
+let cachedSupabaseUrl = '';
+let cachedSupabaseKey = '';
+
 // Fungsi untuk mendapatkan instance client Supabase secara aman
 export function getSupabaseClient() {
   const { supabaseUrl, supabaseAnonKey } = getSupabaseConfig();
-  if (!supabaseUrl || !supabaseAnonKey) return null;
-  try {
-    return createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true
-      }
-    });
-  } catch (error) {
-    console.error('Gagal membuat client Supabase:', error);
+  if (!supabaseUrl || !supabaseAnonKey) {
+    cachedSupabaseClient = null;
     return null;
   }
+  
+  if (!cachedSupabaseClient || cachedSupabaseUrl !== supabaseUrl || cachedSupabaseKey !== supabaseAnonKey) {
+    try {
+      cachedSupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true
+        }
+      });
+      cachedSupabaseUrl = supabaseUrl;
+      cachedSupabaseKey = supabaseAnonKey;
+    } catch (error) {
+      console.error('Gagal membuat client Supabase:', error);
+      return null;
+    }
+  }
+  return cachedSupabaseClient;
 }
 
 // Fungsi pembantu untuk memeriksa apakah mode koneksi Supabase aktif

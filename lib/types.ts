@@ -52,6 +52,7 @@ export interface PreferensiGuru {
   hari_favorit: Hari[];
   jam_favorit: number[]; // jam_ke
   max_jam_per_hari: number;
+  slot_tidak_bersedia?: { hari: Hari; jam_ke: number }[];
 }
 
 export interface Jadwal {

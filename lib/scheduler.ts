@@ -74,6 +74,7 @@ export class CalendarScheduler {
   private preferences: PreferensiGuru[];
 
   private days: Hari[];
+  private batasJamHari?: Record<Hari, number>;
 
   constructor(
     teachers: Guru[],
@@ -83,7 +84,8 @@ export class CalendarScheduler {
     periods: JamPelajaran[],
     assignments: PengampuMataPelajaran[],
     preferences: PreferensiGuru[],
-    activeDays?: Hari[]
+    activeDays?: Hari[],
+    batasJamHari?: Record<Hari, number>
   ) {
     this.teachers = teachers.filter(t => t.status_aktif);
     this.subjects = subjects;
@@ -93,6 +95,7 @@ export class CalendarScheduler {
     this.assignments = assignments;
     this.preferences = preferences;
     this.days = activeDays && activeDays.length > 0 ? activeDays : ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    this.batasJamHari = batasJamHari;
   }
 
   // Generate variables to schedule based on active teaching assignments in blocks
@@ -147,7 +150,7 @@ export class CalendarScheduler {
   }
 
   // --- ALGORTIMA 1: CSP BACKTRACKING WITH MRV & FORWARD CHECKING ---
-  public solveCSP(onProgress?: (msg: string) => void): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
+  public solveCSP(onProgress?: (msg: string, percent?: number) => void): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
     const startTime = performance.now();
     const variables = this.generateVariables();
     const periodsList = this.periods.map(p => p.jam_ke);
@@ -187,6 +190,11 @@ export class CalendarScheduler {
         // 0. Ensure this period exists in our periods list
         if (!periodsList.includes(jam_ke)) return false;
 
+        // Check active hours limit per day (e.g. Jumat only up to Jam Ke-6)
+        if (this.batasJamHari && this.batasJamHari[val.hari] !== undefined) {
+          if (jam_ke > this.batasJamHari[val.hari]) return false;
+        }
+
         const tKey = `${val.hari}_${jam_ke}_${v.guru_id}`;
         const cKey = `${val.hari}_${jam_ke}_${v.kelas_id}`;
         const rKey = `${val.hari}_${jam_ke}_${val.ruangan_id}`;
@@ -200,11 +208,12 @@ export class CalendarScheduler {
         // 3. Hard constraint: Room collision
         if (roomUsage.has(rKey)) return false;
 
-        // 4. Hard constraint: Teacher preference (blocked day/period)
+        // 4. Hard constraint: Teacher preference (blocked day/period/slot)
         const pref = prefMap.get(v.guru_id);
         if (pref) {
           if (pref.hari_tidak_bersedia.includes(val.hari)) return false;
           if (pref.jam_tidak_bersedia.includes(jam_ke)) return false;
+          if (pref.slot_tidak_bersedia?.some(s => s.hari === val.hari && s.jam_ke === jam_ke)) return false;
         }
       }
 
@@ -283,9 +292,15 @@ export class CalendarScheduler {
 
     let steps = 0;
     const assignedSet = new Set<string>();
+    let maxAssigned = 0;
 
     const backtrack = (): boolean => {
       steps++;
+      if (assignedSet.size > maxAssigned) {
+        maxAssigned = assignedSet.size;
+        const percent = Math.min(99, Math.round((maxAssigned / variables.length) * 100));
+        onProgress?.(`Menyusun jadwal (CSP)... Berhasil memetakan ${maxAssigned} dari ${variables.length} slot mata pelajaran.`, percent);
+      }
       if (steps > 25000) {
         // Safeguard to prevent page lock due to over-constraint
         return false;
@@ -407,7 +422,7 @@ export class CalendarScheduler {
   }
 
   // A relaxed CSP backtracking solver to handle highly constrained schools
-  private solveRelaxedCSP(onProgress?: (msg: string) => void, startTime: number = performance.now()): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
+  private solveRelaxedCSP(onProgress?: (msg: string, percent?: number) => void, startTime: number = performance.now()): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
     const variables = this.generateVariables();
     const periodsList = this.periods.map(p => p.jam_ke);
     const assignmentMap = new Map<string, DomainValue>();
@@ -434,7 +449,13 @@ export class CalendarScheduler {
       return true;
     };
 
+    let maxRelaxedIndex = 0;
     const backtrackRelaxed = (index: number): boolean => {
+      if (index > maxRelaxedIndex) {
+        maxRelaxedIndex = index;
+        const percent = Math.min(99, Math.round((maxRelaxedIndex / variables.length) * 100));
+        onProgress?.(`Menyelaraskan slot rileksasi... Memproses ${maxRelaxedIndex} dari ${variables.length} slot.`, percent);
+      }
       if (index >= variables.length) return true;
       const v = variables[index];
 
@@ -482,8 +503,64 @@ export class CalendarScheduler {
       return false;
     };
 
-    const success = backtrackRelaxed(0);
+    let success = backtrackRelaxed(0);
     const finalSchedules: Jadwal[] = [];
+
+    if (!success) {
+      onProgress?.(`⚠️ Menemukan kendala kapasitas berlebih. Mengaktifkan Mode Heuristik Best-Effort Toleransi Bentrok agar semua jadwal tetap terisi...`);
+      
+      // Best-effort greedy placement for unassigned variables
+      for (const v of variables) {
+        if (assignmentMap.has(v.id)) continue;
+
+        let bestVal: DomainValue | null = null;
+        let minPenalty = Infinity;
+
+        // Inspect all possible options to find the one with the lowest conflict penalty
+        for (const h of this.days) {
+          for (const pk of periodsList) {
+            // Ensure the block fits within school hours
+            if (pk + v.block_length - 1 > periodsList[periodsList.length - 1]) continue;
+
+            for (const rId of v.room_candidates) {
+              let penalty = 0;
+              for (let offset = 0; offset < v.block_length; offset++) {
+                const jam_ke = pk + offset;
+                const tKey = `${h}_${jam_ke}_${v.guru_id}`;
+                const cKey = `${h}_${jam_ke}_${v.kelas_id}`;
+                const rKey = `${h}_${jam_ke}_${rId}`;
+
+                if (teacherUsage.has(tKey)) penalty += 1000;
+                if (classUsage.has(cKey)) penalty += 1000;
+                if (roomUsage.has(rKey)) penalty += 500;
+              }
+
+              // Favor earlier periods slightly to have a nicely packed schedule
+              penalty += pk * 2; 
+
+              if (penalty < minPenalty) {
+                minPenalty = penalty;
+                bestVal = { hari: h, jam_ke: pk, ruangan_id: rId };
+              }
+            }
+          }
+        }
+
+        if (bestVal) {
+          assignmentMap.set(v.id, bestVal);
+          for (let offset = 0; offset < v.block_length; offset++) {
+            const jam_ke = bestVal.jam_ke + offset;
+            const tKey = `${bestVal.hari}_${jam_ke}_${v.guru_id}`;
+            const cKey = `${bestVal.hari}_${jam_ke}_${v.kelas_id}`;
+            const rKey = `${bestVal.hari}_${jam_ke}_${bestVal.ruangan_id}`;
+            teacherUsage.add(tKey);
+            classUsage.add(cKey);
+            roomUsage.add(rKey);
+          }
+        }
+      }
+      success = true; // Mark as success now that all items are placed
+    }
 
     if (success) {
       let sIdx = 1;
@@ -502,7 +579,7 @@ export class CalendarScheduler {
           });
         }
       }
-      onProgress?.(`Fallback Rileksasi Sukses! Seluruh slot jadwal berhasil didistribusikan secara dinamis.`);
+      onProgress?.(`Fallback Rileksasi & Heuristik Sukses! Seluruh slot jadwal berhasil didistribusikan secara dinamis.`);
     } else {
       onProgress?.(`Peringatan: Gagal menemukan slot yang bebas dari bentrok. Kapasitas jam sekolah melebihi jumlah slot pengampu yang tersedia.`);
     }
@@ -516,7 +593,7 @@ export class CalendarScheduler {
   }
 
   // --- ALGORITMA 2: GENETIC ALGORITHM (OPSIONAL TAMBAHAN UNTUK DATA BESAR) ---
-  public solveGenetic(onProgress?: (msg: string) => void): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
+  public solveGenetic(onProgress?: (msg: string, percent?: number) => void): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
     const startTime = performance.now();
     const variables = this.generateVariables();
     const periodsList = this.periods.map(p => p.jam_ke);
@@ -537,8 +614,11 @@ export class CalendarScheduler {
     const generateRandomChromosome = (): Chromosome => {
       return variables.map(v => {
         const day = this.days[Math.floor(Math.random() * this.days.length)];
+        const limit = this.batasJamHari?.[day] ?? periodsList[periodsList.length - 1];
         // Ensure starting hour doesn't immediately push the block outside the day
-        const allowablePeriods = periodsList.filter(pk => pk + v.block_length - 1 <= periodsList[periodsList.length - 1]);
+        const allowablePeriods = periodsList.filter(pk => 
+          pk <= limit && pk + v.block_length - 1 <= limit
+        );
         const period = allowablePeriods.length > 0 
           ? allowablePeriods[Math.floor(Math.random() * allowablePeriods.length)]
           : periodsList[Math.floor(Math.random() * periodsList.length)];
@@ -568,6 +648,12 @@ export class CalendarScheduler {
           if (!periodsList.includes(jam_ke)) {
             blockFits = false;
             break;
+          }
+          if (this.batasJamHari && this.batasJamHari[val.hari] !== undefined) {
+            if (jam_ke > this.batasJamHari[val.hari]) {
+              blockFits = false;
+              break;
+            }
           }
         }
 
@@ -603,6 +689,7 @@ export class CalendarScheduler {
             if (count > pref.max_jam_per_hari) score -= 150;
             if (pref.hari_tidak_bersedia.includes(val.hari)) score -= 250;
             if (pref.jam_tidak_bersedia.includes(jam_ke)) score -= 250;
+            if (pref.slot_tidak_bersedia?.some(s => s.hari === val.hari && s.jam_ke === jam_ke)) score -= 250;
 
             // Soft positive triggers
             if (pref.hari_favorit.includes(val.hari)) score += 20;
@@ -640,8 +727,12 @@ export class CalendarScheduler {
       for (let i = 0; i < chromo.length; i++) {
         if (Math.random() < MUTATION_RATE) {
           const v = variables[i];
-          chromo[i].hari = this.days[Math.floor(Math.random() * this.days.length)];
-          const allowablePeriods = periodsList.filter(pk => pk + v.block_length - 1 <= periodsList[periodsList.length - 1]);
+          const newDay = this.days[Math.floor(Math.random() * this.days.length)];
+          chromo[i].hari = newDay;
+          const limit = this.batasJamHari?.[newDay] ?? periodsList[periodsList.length - 1];
+          const allowablePeriods = periodsList.filter(pk => 
+            pk <= limit && pk + v.block_length - 1 <= limit
+          );
           chromo[i].jam_ke = allowablePeriods.length > 0 
             ? allowablePeriods[Math.floor(Math.random() * allowablePeriods.length)]
             : periodsList[Math.floor(Math.random() * periodsList.length)];
@@ -660,8 +751,9 @@ export class CalendarScheduler {
       // Sort population by fitness
       population.sort((a, b) => b.fitness - a.fitness);
 
-      if (gen % 20 === 0) {
-        onProgress?.(`Generasi ${gen}/${GENERATIONS} - Fitness Terbaik: ${population[0].fitness}`);
+      const percent = Math.min(99, Math.round((gen / GENERATIONS) * 100));
+      if (gen % 5 === 0) {
+        onProgress?.(`Generasi Genetika ${gen}/${GENERATIONS} - Fitness Terbaik: ${population[0].fitness}`, percent);
       }
 
       if (population[0].fitness >= 4800) {
@@ -711,26 +803,57 @@ export class CalendarScheduler {
     population.sort((a, b) => b.fitness - a.fitness);
     const bestChromo = population[0].chromo;
 
-    // Convert best chromosome back into Schedule records
+    // Convert best chromosome back into Schedule records (preventing concurrent conflicts for same teacher or class)
     let sIdx = 1;
     const finalSchedules: Jadwal[] = [];
+    const teacherActiveSlots = new Set<string>();
+    const classActiveSlots = new Set<string>();
+    const roomActiveSlots = new Set<string>();
+
     bestChromo.forEach((val, idx) => {
       const originalVar = variables[idx];
+      let hasConflict = false;
+
+      // Check if this assignment causes a concurrent collision for teacher, class, or room
       for (let offset = 0; offset < originalVar.block_length; offset++) {
-        finalSchedules.push({
-          id: `sch-gen-genetika-${sIdx++}`,
-          assignment_id: originalVar.assignmentId,
-          guru_id: originalVar.guru_id,
-          mapel_id: originalVar.mapel_id,
-          kelas_id: originalVar.kelas_id,
-          ruangan_id: val.ruangan_id,
-          hari: val.hari,
-          jam_ke: val.jam_ke + offset
-        });
+        const jk = val.jam_ke + offset;
+        const tKey = `${val.hari}_${jk}_${originalVar.guru_id}`;
+        const cKey = `${val.hari}_${jk}_${originalVar.kelas_id}`;
+        const rKey = `${val.hari}_${jk}_${val.ruangan_id}`;
+
+        if (teacherActiveSlots.has(tKey) || classActiveSlots.has(cKey) || roomActiveSlots.has(rKey)) {
+          hasConflict = true;
+          break;
+        }
+      }
+
+      // If no collision, place it into the grid! If there is a collision, skip it (user can adjust manually)
+      if (!hasConflict) {
+        for (let offset = 0; offset < originalVar.block_length; offset++) {
+          const jk = val.jam_ke + offset;
+          const tKey = `${val.hari}_${jk}_${originalVar.guru_id}`;
+          const cKey = `${val.hari}_${jk}_${originalVar.kelas_id}`;
+          const rKey = `${val.hari}_${jk}_${val.ruangan_id}`;
+
+          teacherActiveSlots.add(tKey);
+          classActiveSlots.add(cKey);
+          roomActiveSlots.add(rKey);
+
+          finalSchedules.push({
+            id: `sch-gen-genetika-${sIdx++}`,
+            assignment_id: originalVar.assignmentId,
+            guru_id: originalVar.guru_id,
+            mapel_id: originalVar.mapel_id,
+            kelas_id: originalVar.kelas_id,
+            ruangan_id: val.ruangan_id,
+            hari: val.hari,
+            jam_ke: jk
+          });
+        }
       }
     });
 
-    onProgress?.(`Algoritma Genetika selesai dengan Fitness Akhir: ${population[0].fitness}`);
+    onProgress?.(`Algoritma Genetika selesai dengan Fitness Akhir: ${population[0].fitness}. Berhasil menempatkan ${finalSchedules.length} slot jadwal bebas bentrok.`);
 
     const endTime = performance.now();
 

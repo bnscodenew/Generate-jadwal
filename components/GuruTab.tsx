@@ -17,6 +17,7 @@ interface GuruTabProps {
     hari_favorit: Hari[];
     jam_favorit: number[];
     max_jam_per_hari: number;
+    slot_tidak_bersedia?: { hari: Hari; jam_ke: number }[];
   }) => void;
   hariAktif: Hari[];
 }
@@ -38,6 +39,7 @@ export default function GuruTab({
   const [prefDaysFav, setPrefDaysFav] = useState<Hari[]>([]);
   const [prefSlotsFav, setPrefSlotsFav] = useState<number[]>([]);
   const [prefMaxHours, setPrefMaxHours] = useState<number>(6);
+  const [prefSpecificSlotsBlocked, setPrefSpecificSlotsBlocked] = useState<{ hari: Hari; jam_ke: number }[]>([]);
 
   const openPreferencesModal = (guruId: string) => {
     const existing = preferensi.find(p => p.guru_id === guruId);
@@ -49,12 +51,14 @@ export default function GuruTab({
       setPrefDaysFav(existing.hari_favorit);
       setPrefSlotsFav(existing.jam_favorit);
       setPrefMaxHours(existing.max_jam_per_hari || 6);
+      setPrefSpecificSlotsBlocked(existing.slot_tidak_bersedia || []);
     } else {
       setPrefDaysBlocked([]);
       setPrefSlotsBlocked([]);
       setPrefDaysFav([]);
       setPrefSlotsFav([]);
       setPrefMaxHours(6);
+      setPrefSpecificSlotsBlocked([]);
     }
   };
 
@@ -70,6 +74,16 @@ export default function GuruTab({
   const toggleSlotFav = (s: number) => {
     setPrefSlotsFav(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
   };
+  const toggleSpecificSlotBlocked = (hari: Hari, jam_ke: number) => {
+    setPrefSpecificSlotsBlocked(prev => {
+      const exists = prev.some(x => x.hari === hari && x.jam_ke === jam_ke);
+      if (exists) {
+        return prev.filter(x => !(x.hari === hari && x.jam_ke === jam_ke));
+      } else {
+        return [...prev, { hari, jam_ke }];
+      }
+    });
+  };
 
   const handleSavePreferences = () => {
     if (!preferensiModalGuruId) return;
@@ -78,7 +92,8 @@ export default function GuruTab({
       jam_tidak_bersedia: prefSlotsBlocked,
       hari_favorit: prefDaysFav,
       jam_favorit: prefSlotsFav,
-      max_jam_per_hari: prefMaxHours
+      max_jam_per_hari: prefMaxHours,
+      slot_tidak_bersedia: prefSpecificSlotsBlocked
     });
     setPreferensiModalGuruId(null);
   };
@@ -362,6 +377,62 @@ export default function GuruTab({
                 </div>
 
               </div>
+
+              {/* SPECIFIC SLOTS BLOCK GRID */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div>
+                  <span className="font-bold text-rose-700 block uppercase tracking-tight font-mono text-[10px] border-b border-slate-200 pb-1">
+                    Halangan Khusus (Slot Jam &amp; Hari Spesifik)
+                  </span>
+                  <span className="text-slate-500 text-[11px] font-medium block mt-1">
+                    Pilih kotak di bawah untuk memblokir slot hari dan jam pelajaran spesifik (misal: guru hanya tidak bisa mengajar hari Jumat di Jam Ke-2 dan Ke-3).
+                  </span>
+                </div>
+                
+                <div className="overflow-x-auto border border-slate-150 rounded-lg">
+                  <table className="w-full border-collapse bg-white text-center text-[11px]">
+                    <thead>
+                      <tr className="bg-slate-100 border-b border-slate-200">
+                        <th className="p-2 text-left font-bold text-slate-500">Hari \ Jam</th>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+                          <th key={s} className="p-2 font-mono font-bold text-slate-500">
+                            Ke-{s}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {hariAktif.map((d) => (
+                        <tr key={d} className="hover:bg-slate-50/50">
+                          <td className="p-2 text-left font-semibold text-slate-700 whitespace-nowrap bg-slate-50/30">
+                            {d}
+                          </td>
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => {
+                            const isSlotBlocked = prefSpecificSlotsBlocked.some(x => x.hari === d && x.jam_ke === s);
+                            return (
+                              <td key={s} className="p-1">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSpecificSlotBlocked(d as Hari, s)}
+                                  className={`w-full py-2 font-semibold rounded-md transition border cursor-pointer ${
+                                    isSlotBlocked
+                                      ? 'bg-rose-100 text-rose-700 border-rose-300 font-bold'
+                                      : 'bg-slate-50/60 hover:bg-slate-100 text-slate-400 hover:text-slate-650 border-slate-200/50'
+                                  }`}
+                                  title={`${d} Jam Ke-${s}: Klik untuk ${isSlotBlocked ? 'izinkan' : 'blokir'}`}
+                                >
+                                  {isSlotBlocked ? '✕' : '✔'}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
             </div>
 
             {/* ACTIONS BAR */}

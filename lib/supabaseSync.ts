@@ -9,33 +9,39 @@ function isValidUUID(id: string): boolean {
 }
 
 // Map local IDs to valid UUIDs to satisfy PostgreSQL constraints, ensuring relationships are preserved
-class IDMapper {
-  private static maps: { [key: string]: string } = {};
+function getDeterministicUUID(str: string): string {
+  let hash1 = 0, hash2 = 0, hash3 = 0, hash4 = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash1 = (hash1 * 31 + ch) | 0;
+    hash2 = (hash2 * 37 + ch) | 0;
+    hash3 = (hash3 * 41 + ch) | 0;
+    hash4 = (hash4 * 43 + ch) | 0;
+  }
+  
+  const hex = (val: number) => {
+    const h = (val >>> 0).toString(16);
+    return '00000000'.substring(h.length) + h;
+  };
+  
+  const s1 = hex(hash1);
+  const s2 = hex(hash2).substring(0, 4);
+  const s3 = hex(hash3).substring(4, 8);
+  const s4 = hex(hash4).substring(0, 4);
+  const s5 = hex(hash1 ^ hash2 ^ hash3 ^ hash4) + hex(hash1 & hash2 | hash3);
+  
+  return `${s1}-${s2}-4${s3.substring(1)}-8${s4.substring(1)}-${s5.substring(0, 12)}`;
+}
 
+class IDMapper {
   static getUUID(localId: string): string {
     if (!localId) return '';
     if (isValidUUID(localId)) return localId;
-    
-    const key = `mapped_${localId}`;
-    if (this.maps[key]) {
-      return this.maps[key];
-    }
-
-    // Buat UUID baru secara acak
-    const newUUID = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0;
-          const v = c === 'x' ? r : (r & 0x3 | 0x8);
-          return v.toString(16);
-        });
-        
-    this.maps[key] = newUUID;
-    return newUUID;
+    return getDeterministicUUID(localId);
   }
 
   static reset() {
-    this.maps = {};
+    // No-op karena pemetaan bersifat deterministik berdasarkan nilai ID lokal!
   }
 }
 
@@ -91,18 +97,66 @@ export class SupabaseSyncService {
       const schedules = LocalDB.getJadwal();
       const conflicts = LocalDB.getConflicts();
 
-      // Coba dapatkan user authenticated jika ada, jika tidak, gunakan NULL (akan memicu RLS jika tidak login, jadi kami ingatkan)
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id || null;
+      // Coba dapatkan user authenticated jika ada, jika tidak, batalkan karena RLS mencegah penulisan tanpa auth
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        return {
+          success: false,
+          message: 'Sesi masuk Supabase tidak terdeteksi atau telah berakhir. Silakan login terlebih dahulu menggunakan Google.',
+          logs: ['Sinkronisasi dibatalkan karena pengguna tidak terautentikasi.', ...(userError ? [`Detail: ${userError.message}`] : [])]
+        };
+      }
+      const userId = user.id;
       
-      logs.push(userId && user ? `User authenticated terdeteksi: ${user.email}` : 'Menjalankan tanpa session auth Supabase (menggunakan default RLS bypass atau public access)');
+      logs.push(`User authenticated terdeteksi: ${user.email}`);
 
-      // Fungsi bantu upsert dengan payload terisi
-      const upsertTable = async (table: string, items: any[]) => {
-        if (items.length === 0) return;
-        const { error } = await supabase.from(table).upsert(items);
-        if (error) {
-          throw new Error(`Gagal menulis ke tabel ${table}: ${error.message}`);
+      // Sync School Profile
+      const currentUserNow = LocalDB.getCurrentUser();
+      const schoolName = currentUserNow?.nama_sekolah || 'SMAN 1 AI INDONESIA';
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: userId,
+        nama_sekolah: schoolName
+      });
+      if (profileError) {
+        console.error("Gagal sinkronisasi nama sekolah ke profiles:", profileError.message);
+        logs.push(`⚠️ Peringatan: Gagal mensinkronisasi profil sekolah ke Cloud: ${profileError.message}`);
+      } else {
+        logs.push(`Berhasil menyelaraskan profil sekolah (${schoolName}) di Cloud.`);
+      }
+
+      // Fungsi bantu upsert dengan payload terisi & membersihkan data lama untuk isolasi & sinkronisasi
+      const syncTable = async (table: string, items: any[]) => {
+        // 1. Upsert items
+        if (items.length > 0) {
+          const { error: upsertError } = await supabase.from(table).upsert(items);
+          if (upsertError) {
+            throw new Error(`Gagal menulis ke tabel ${table}: ${upsertError.message}`);
+          }
+        }
+        
+        // 2. Clean up deleted items for this user
+        if (userId) {
+          const itemIds = items.map(item => item.id);
+          if (itemIds.length > 0) {
+            const { error: deleteError } = await supabase
+              .from(table)
+              .delete()
+              .eq('user_id', userId)
+              .not('id', 'in', `(${itemIds.join(',')})`);
+            
+            if (deleteError) {
+              console.warn(`Gagal membersihkan data lama di ${table}:`, deleteError.message);
+            }
+          } else {
+            const { error: deleteError } = await supabase
+              .from(table)
+              .delete()
+              .eq('user_id', userId);
+              
+            if (deleteError) {
+              console.warn(`Gagal mengosongkan tabel ${table}:`, deleteError.message);
+            }
+          }
         }
       };
 
@@ -116,8 +170,8 @@ export class SupabaseSyncService {
         status_aktif: t.status_aktif,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('teachers', mappedTeachers);
-      logs.push(`Berhasil mengunggah ${mappedTeachers.length} data Guru.`);
+      await syncTable('teachers', mappedTeachers);
+      logs.push(`Berhasil menyelaraskan ${mappedTeachers.length} data Guru.`);
 
       // 2. Subjects
       const mappedSubjects = subjects.map(s => ({
@@ -127,8 +181,8 @@ export class SupabaseSyncService {
         jumlah_jam_per_minggu: s.jumlah_jam_per_minggu,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('subjects', mappedSubjects);
-      logs.push(`Berhasil mengunggah ${mappedSubjects.length} data Mata Pelajaran.`);
+      await syncTable('subjects', mappedSubjects);
+      logs.push(`Berhasil menyelaraskan ${mappedSubjects.length} data Mata Pelajaran.`);
 
       // 3. Classes
       const mappedClasses = classes.map(c => ({
@@ -138,8 +192,8 @@ export class SupabaseSyncService {
         wali_kelas: c.wali_kelas || '',
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('classes', mappedClasses);
-      logs.push(`Berhasil mengunggah ${mappedClasses.length} data Kelas.`);
+      await syncTable('classes', mappedClasses);
+      logs.push(`Berhasil menyelaraskan ${mappedClasses.length} data Kelas.`);
 
       // 4. Rooms
       const mappedRooms = rooms.map(r => ({
@@ -148,8 +202,8 @@ export class SupabaseSyncService {
         kapasitas: r.kapasitas,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('rooms', mappedRooms);
-      logs.push(`Berhasil mengunggah ${mappedRooms.length} data Ruangan.`);
+      await syncTable('rooms', mappedRooms);
+      logs.push(`Berhasil menyelaraskan ${mappedRooms.length} data Ruangan.`);
 
       // 5. Periods (Jam Pelajaran)
       const mappedPeriods = periods.map(p => ({
@@ -159,8 +213,8 @@ export class SupabaseSyncService {
         jam_selesai: p.jam_selesai.includes(':') ? p.jam_selesai : `${p.jam_selesai}:00`,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('periods', mappedPeriods);
-      logs.push(`Berhasil mengunggah ${mappedPeriods.length} data Jam Pelajaran.`);
+      await syncTable('periods', mappedPeriods);
+      logs.push(`Berhasil menyelaraskan ${mappedPeriods.length} data Jam Pelajaran.`);
 
       // 6. Teacher Preferences
       const mappedPreferences = preferences.map(p => ({
@@ -173,8 +227,8 @@ export class SupabaseSyncService {
         max_jam_per_hari: p.max_jam_per_hari,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('teacher_preferences', mappedPreferences);
-      logs.push(`Berhasil mengunggah ${mappedPreferences.length} data Preferensi Guru.`);
+      await syncTable('teacher_preferences', mappedPreferences);
+      logs.push(`Berhasil menyelaraskan ${mappedPreferences.length} data Preferensi Guru.`);
 
       // 7. Teaching Assignments (Pengampu)
       const mappedAssignments = assignments.map(a => ({
@@ -185,8 +239,8 @@ export class SupabaseSyncService {
         jumlah_jam: a.jumlah_jam,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('teaching_assignments', mappedAssignments);
-      logs.push(`Berhasil mengunggah ${mappedAssignments.length} data Pengampu Mata Pelajaran.`);
+      await syncTable('teaching_assignments', mappedAssignments);
+      logs.push(`Berhasil menyelaraskan ${mappedAssignments.length} data Pengampu Mata Pelajaran.`);
 
       // 8. Schedules (Jadwal)
       const mappedSchedules = schedules.map(s => ({
@@ -200,8 +254,8 @@ export class SupabaseSyncService {
         jam_ke: s.jam_ke,
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('schedules', mappedSchedules);
-      logs.push(`Berhasil mengunggah ${mappedSchedules.length} data Jadwal Pelajaran.`);
+      await syncTable('schedules', mappedSchedules);
+      logs.push(`Berhasil menyelaraskan ${mappedSchedules.length} data Jadwal Pelajaran.`);
 
       // 9. Schedule Conflicts (Konflik)
       const mappedConflicts = conflicts.map(c => ({
@@ -213,8 +267,8 @@ export class SupabaseSyncService {
         entities_involved: c.entities_involved || [],
         ...(userId ? { user_id: userId } : {})
       }));
-      await upsertTable('schedule_conflicts', mappedConflicts);
-      logs.push(`Berhasil mengunggah ${mappedConflicts.length} data Deteksi Konflik.`);
+      await syncTable('schedule_conflicts', mappedConflicts);
+      logs.push(`Berhasil menyelaraskan ${mappedConflicts.length} data Deteksi Konflik.`);
 
       logs.push('SINKRONISASI UNGGAH BERHASIL! Seluruh data lokal kini tersimpan dengan aman di Supabase cloud.');
       return { success: true, message: 'Seluruh data berhasil diunggah ke Supabase!', logs };
@@ -235,7 +289,43 @@ export class SupabaseSyncService {
     }
 
     try {
+      // Coba dapatkan user authenticated jika ada, jika tidak, batalkan karena RLS mencegah penulisan/pembacaan tanpa auth
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        return {
+          success: false,
+          message: 'Sesi masuk Supabase tidak terdeteksi atau telah berakhir. Silakan login terlebih dahulu menggunakan Google.',
+          logs: ['Sinkronisasi unduh dibatalkan karena pengguna tidak terautentikasi.', ...(userError ? [`Detail: ${userError.message}`] : [])]
+        };
+      }
+
+      logs.push(`Memulai proses unduh data untuk akun: ${user.email}`);
       logs.push('Mengunduh seluruh data dari database Supabase cloud...');
+
+      // Update current user's school name if we pulled a profile
+      let schoolName = 'SMAN 1 AI INDONESIA';
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('nama_sekolah')
+          .maybeSingle();
+        
+        if (!profileError && profileData) {
+          schoolName = profileData.nama_sekolah;
+          logs.push(`Membaca profil sekolah dari Cloud: ${schoolName}`);
+          
+          if (typeof window !== 'undefined') {
+            const user = localStorage.getItem('sch_current_user');
+            if (user) {
+              const parsedUser = JSON.parse(user);
+              parsedUser.nama_sekolah = schoolName;
+              localStorage.setItem('sch_current_user', JSON.stringify(parsedUser));
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Gagal membaca profil sekolah dari cloud:", err);
+      }
 
       // Ambil data satu persatu dari Supabase
       const fetchTable = async (table: string) => {
@@ -271,7 +361,7 @@ export class SupabaseSyncService {
       logs.push(`Terunduh ${schedulesData.length} data Jadwal Pelajaran.`);
 
       // Petakan kembali ke format LocalDB
-      const localTeachers: Guru[] = teachersData.map(t => ({
+      const localTeachers: Guru[] = teachersData.map((t: any) => ({
         id: t.id,
         nip: t.nip,
         nama: t.nama,
@@ -280,34 +370,34 @@ export class SupabaseSyncService {
         status_aktif: t.status_aktif
       }));
 
-      const localSubjects: MataPelajaran[] = subjectsData.map(s => ({
+      const localSubjects: MataPelajaran[] = subjectsData.map((s: any) => ({
         id: s.id,
         kode_mapel: s.kode_mapel,
         nama_mapel: s.nama_mapel,
         jumlah_jam_per_minggu: s.jumlah_jam_per_minggu
       }));
 
-      const localClasses: Kelas[] = classesData.map(c => ({
+      const localClasses: Kelas[] = classesData.map((c: any) => ({
         id: c.id,
         nama_kelas: c.nama_kelas,
         tingkat: c.tingkat,
         wali_kelas: c.wali_kelas || ''
       }));
 
-      const localRooms: Ruangan[] = roomsData.map(r => ({
+      const localRooms: Ruangan[] = roomsData.map((r: any) => ({
         id: r.id,
         nama_ruangan: r.nama_ruangan,
         kapasitas: r.kapasitas
       }));
 
-      const localPeriods: JamPelajaran[] = periodsData.map(p => ({
+      const localPeriods: JamPelajaran[] = periodsData.map((p: any) => ({
         id: p.id,
         jam_ke: p.jam_ke,
         jam_mulai: p.jam_mulai.substring(0, 5), // '07:30:00' -> '07:30'
         jam_selesai: p.jam_selesai.substring(0, 5)
-      })).sort((a, b) => a.jam_ke - b.jam_ke);
+      })).sort((a: any, b: any) => a.jam_ke - b.jam_ke);
 
-      const localPreferences: PreferensiGuru[] = preferencesData.map(p => ({
+      const localPreferences: PreferensiGuru[] = preferencesData.map((p: any) => ({
         id: p.id,
         guru_id: p.guru_id,
         hari_tidak_bersedia: p.hari_tidak_bersedia || [],
@@ -317,7 +407,7 @@ export class SupabaseSyncService {
         max_jam_per_hari: p.max_jam_per_hari || 6
       }));
 
-      const localAssignments: PengampuMataPelajaran[] = assignmentsData.map(a => ({
+      const localAssignments: PengampuMataPelajaran[] = assignmentsData.map((a: any) => ({
         id: a.id,
         guru_id: a.guru_id,
         mapel_id: a.mapel_id,
@@ -325,7 +415,7 @@ export class SupabaseSyncService {
         jumlah_jam: a.jumlah_jam
       }));
 
-      const localSchedules: Jadwal[] = schedulesData.map(s => ({
+      const localSchedules: Jadwal[] = schedulesData.map((s: any) => ({
         id: s.id,
         assignment_id: s.assignment_id || '',
         guru_id: s.guru_id,
@@ -365,10 +455,11 @@ export class SupabaseSyncService {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id || null;
+      if (!userId) return; // Prevent unauthenticated writes!
       
       const payload = {
         ...itemPayload,
-        ...(userId ? { user_id: userId } : {})
+        user_id: userId
       };
 
       if (action === 'upsert') {

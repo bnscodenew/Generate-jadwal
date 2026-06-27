@@ -122,6 +122,17 @@ export class LocalDB {
   static getHariAktif(): Hari[] {
     return this.getStored<Hari[]>('sch_hari_aktif', ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']);
   }
+  static getBatasJamHari(): Record<Hari, number> {
+    return this.getStored<Record<Hari, number>>('sch_batas_jam_hari', {
+      'Senin': 8,
+      'Selasa': 8,
+      'Rabu': 8,
+      'Kamis': 8,
+      'Jumat': 8,
+      'Sabtu': 8,
+      'Minggu': 8,
+    });
+  }
 
   // --- SAVE ALL ---
   static saveGuru(data: Guru[]) { this.setStored('sch_guru', data); this.recalculateConflicts(); }
@@ -133,6 +144,7 @@ export class LocalDB {
   static savePreferensi(data: PreferensiGuru[]) { this.setStored('sch_preferensi', data); this.recalculateConflicts(); }
   static saveJadwal(data: Jadwal[]) { this.setStored('sch_jadwal', data); this.recalculateConflicts(); }
   static saveHariAktif(data: Hari[]) { this.setStored('sch_hari_aktif', data); this.recalculateConflicts(); }
+  static saveBatasJamHari(data: Record<Hari, number>) { this.setStored('sch_batas_jam_hari', data); this.recalculateConflicts(); }
 
   // --- RESET TO DEFAULTS ---
   static resetToDefault() {
@@ -222,6 +234,16 @@ export class LocalDB {
             entities_involved: [tMap.get(s.guru_id) || s.guru_id]
           });
         }
+        if (pref.slot_tidak_bersedia?.some(slot => slot.hari === s.hari && slot.jam_ke === s.jam_ke)) {
+          conflicts.push({
+            id: `conf-pref-slot-${conflictIdCounter++}`,
+            tipe_konflik: 'preferensi_bentrok',
+            deskripsi: `Guru ${tMap.get(s.guru_id) || s.guru_id} dijadwalkan mengajar pada hari ${s.hari} Jam Ke-${s.jam_ke} yang bertentangan dengan preferensi khusus berhalangan.`,
+            hari: s.hari,
+            jam_ke: s.jam_ke,
+            entities_involved: [tMap.get(s.guru_id) || s.guru_id]
+          });
+        }
       }
     }
 
@@ -294,6 +316,22 @@ export class LocalDB {
             entities_involved: [g.nama]
           });
         }
+      }
+    }
+
+    // Check day period limits
+    const batasJamHari = this.getBatasJamHari();
+    for (const s of schedules) {
+      const limit = batasJamHari[s.hari];
+      if (limit !== undefined && s.jam_ke > limit) {
+        conflicts.push({
+          id: `conf-limit-${s.id}-${conflictIdCounter++}`,
+          tipe_konflik: 'preferensi_bentrok',
+          deskripsi: `Jadwal pada hari ${s.hari} Jam Ke-${s.jam_ke} melebihi batas jam harian maksimal untuk hari tersebut (Maksimal Jam Ke-${limit}).`,
+          hari: s.hari,
+          jam_ke: s.jam_ke,
+          entities_involved: [tMap.get(s.guru_id) || s.guru_id]
+        });
       }
     }
 

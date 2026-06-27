@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, 
   BookOpen, 
@@ -68,13 +68,29 @@ export default function AdministrativeDashboard() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([]);
   const [conflicts, setConflicts] = useState<KonflikJadwal[]>([]);
   const [hariAktif, setHariAktif] = useState<Hari[]>([]);
+  const [batasJamHari, setBatasJamHari] = useState<Record<Hari, number>>({
+    'Senin': 8,
+    'Selasa': 8,
+    'Rabu': 8,
+    'Kamis': 8,
+    'Jumat': 8,
+    'Sabtu': 8,
+    'Minggu': 8,
+  });
 
   // Simulation settings
   const [algorithm, setAlgorithm] = useState<'csp' | 'genetic'>('csp');
   const [connMode, setConnMode] = useState<'mock' | 'supabase'>('mock');
   const [logMessages, setLogMessages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [stats, setStats] = useState({ executionTimeMs: 0, score: 0 });
+  const [generationProgress, setGenerationProgress] = useState<number>(0);
+  const [stats, setStats] = useState<{
+    executionTimeMs: number;
+    score: number;
+    totalLessonsNeeded?: number;
+    totalLessonsPlotted?: number;
+    totalConflicts?: number;
+  }>({ executionTimeMs: 0, score: 0 });
 
   // Filter Grid State
   const [filterType, setFilterType] = useState<'kelas' | 'guru' | 'ruangan'>('kelas');
@@ -149,10 +165,34 @@ export default function AdministrativeDashboard() {
         
         // Let's also sync data down automatically if they just logged in!
         try {
-          const pullResult = await SupabaseSyncService.pullAll();
-          if (pullResult.success) {
-            setLogMessages(prev => [`🔄 Data berhasil disinkronkan otomatis dari Supabase cloud!`, ...prev]);
-            loadDatabase();
+          // Check if local database is NOT empty but cloud database is completely empty
+          const hasLocalData = LocalDB.getGuru().length > 0 || LocalDB.getMapel().length > 0 || LocalDB.getKelas().length > 0;
+          
+          let pushedInsteadOfPulled = false;
+          if (hasLocalData) {
+            const supabaseInstance = getSupabaseClient();
+            if (supabaseInstance) {
+              const { data: cloudTeachers, error: checkError } = await supabaseInstance.from('teachers').select('id').limit(1);
+              const cloudIsEmpty = !checkError && (!cloudTeachers || cloudTeachers.length === 0);
+              
+              if (cloudIsEmpty) {
+                // If cloud is empty and we have local data, PUSH first so we don't wipe local data!
+                const pushResult = await SupabaseSyncService.pushAll();
+                if (pushResult.success) {
+                  setLogMessages(prev => [`🔄 Data lokal Anda berhasil diunggah (disinkronkan) ke akun cloud Supabase baru Anda!`, ...prev]);
+                  loadDatabase(true);
+                  pushedInsteadOfPulled = true;
+                }
+              }
+            }
+          }
+
+          if (!pushedInsteadOfPulled) {
+            const pullResult = await SupabaseSyncService.pullAll();
+            if (pullResult.success) {
+              setLogMessages(prev => [`🔄 Data berhasil disinkronkan otomatis dari Supabase cloud!`, ...prev]);
+              loadDatabase(true);
+            }
           }
         } catch (pullErr) {
           console.error("Gagal auto-pull saat login:", pullErr);
@@ -260,8 +300,21 @@ export default function AdministrativeDashboard() {
     setAuthError('');
   };
 
+  const syncTimeoutRef = useRef<any>(null);
+  const generatorWorkerRef = useRef<Worker | null>(null);
+  const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
+
+  // Terminate any running web worker on component unmount
+  useEffect(() => {
+    return () => {
+      if (generatorWorkerRef.current) {
+        generatorWorkerRef.current.terminate();
+      }
+    };
+  }, []);
+
   // Load and refresh state
-  const loadDatabase = () => {
+  const loadDatabase = (skipCloudSync = false) => {
     setGuru(LocalDB.getGuru());
     setMapel(LocalDB.getMapel());
     setKelas(LocalDB.getKelas());
@@ -272,6 +325,34 @@ export default function AdministrativeDashboard() {
     setJadwal(LocalDB.getJadwal());
     setConflicts(LocalDB.getConflicts());
     setHariAktif(LocalDB.getHariAktif());
+    setBatasJamHari(LocalDB.getBatasJamHari());
+
+    // Auto sync to cloud Supabase if active, not skipped, and we are logged in as a Google user!
+    const currUser = LocalDB.getCurrentUser();
+    const isGoogleUser = currUser?.isGoogle || false;
+
+    if (isSupabaseModeActive() && !skipCloudSync && isGoogleUser) {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+      
+      setIsCloudSyncing(true);
+      syncTimeoutRef.current = setTimeout(async () => {
+        try {
+          console.log("Auto-syncing changes to Supabase cloud...");
+          const res = await SupabaseSyncService.pushAll();
+          if (res.success) {
+            setLogMessages(prev => ["☁️ [Autosave] Perubahan otomatis diselaraskan ke database cloud Supabase!", ...prev]);
+          } else {
+            setLogMessages(prev => [`⚠️ [Autosave Gagal] ${res.message}`, ...prev]);
+          }
+        } catch (syncErr: any) {
+          console.error("Gagal melakukan auto-sync ke Supabase:", syncErr);
+        } finally {
+          setIsCloudSyncing(false);
+        }
+      }, 1200); // Debounce of 1.2 seconds to batch successive changes!
+    }
   };
 
   const handleSetActiveTab = (tab: string) => {
@@ -357,7 +438,7 @@ export default function AdministrativeDashboard() {
       const supabase = getSupabaseClient();
       if (supabase) {
         // Subscribe to auth state changes - fires when session is created or refreshed anywhere in the browser
-        const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+        const { data } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
           console.log("Supabase Auth State Event:", event);
           if (session?.user) {
             await checkSupabaseSession();
@@ -628,6 +709,7 @@ export default function AdministrativeDashboard() {
     hari_favorit: Hari[];
     jam_favorit: number[];
     max_jam_per_hari: number;
+    slot_tidak_bersedia?: { hari: Hari; jam_ke: number }[];
   }) => {
     const existingIdx = preferensi.findIndex(p => p.guru_id === guruId);
     const updated: PreferensiGuru = {
@@ -637,7 +719,8 @@ export default function AdministrativeDashboard() {
       jam_tidak_bersedia: updatedPref.jam_tidak_bersedia,
       hari_favorit: updatedPref.hari_favorit,
       jam_favorit: updatedPref.jam_favorit,
-      max_jam_per_hari: updatedPref.max_jam_per_hari
+      max_jam_per_hari: updatedPref.max_jam_per_hari,
+      slot_tidak_bersedia: updatedPref.slot_tidak_bersedia
     };
 
     let newPrefList = [...preferensi];
@@ -652,7 +735,21 @@ export default function AdministrativeDashboard() {
     setLogMessages(prev => [`Preferensi guru ${guru.find(g => g.id === guruId)?.nama} berhasil disimpan dan dievaluasi.`, ...prev]);
   };
 
+  const handleUpdateBatasJamHari = (updatedBatas: Record<Hari, number>) => {
+    LocalDB.saveBatasJamHari(updatedBatas);
+    loadDatabase();
+  };
+
   // --- AUTOMATIC TIMETABLE GENERATION ENGINE ---
+  const handleCancelGeneration = () => {
+    if (generatorWorkerRef.current) {
+      generatorWorkerRef.current.terminate();
+      generatorWorkerRef.current = null;
+    }
+    setIsGenerating(false);
+    setLogMessages(prev => ['🛑 Proses penyusunan jadwal dibatalkan oleh pengguna.', ...prev]);
+  };
+
   const handleGenerateAutomatedTimetable = () => {
     if (guru.length === 0 || mapel.length === 0 || kelas.length === 0 || ruangan.length === 0 || pengampu.length === 0) {
       alert('Mohon lengkapi seluruh Data Master (Guru, Mapel, Kelas, Ruangan, & Pengampu) terlebih dahulu.');
@@ -660,8 +757,94 @@ export default function AdministrativeDashboard() {
     }
 
     setIsGenerating(true);
-    setLogMessages(['Menganalisis skema pembagian kelas penjadwalan...', 'Menginisialisasi algoritma pengkondisian...']);
+    setGenerationProgress(0);
+    setLogMessages(['Menginisialisasi pemrosesan di latar belakang...', 'Menganalisis skema pembagian kelas penjadwalan...']);
 
+    // Check if Web Worker is supported in the browser
+    if (typeof window !== 'undefined' && (window as any).Worker) {
+      try {
+        if (generatorWorkerRef.current) {
+          generatorWorkerRef.current.terminate();
+        }
+
+        // Create a new worker instance
+        const worker = new Worker(new URL('../lib/scheduler.worker.ts', import.meta.url));
+        generatorWorkerRef.current = worker;
+
+        worker.onmessage = (e: MessageEvent) => {
+          const { type, message, percent, result, error } = e.data;
+
+          if (type === 'progress') {
+            setLogMessages(prev => [message, ...prev]);
+            if (percent !== undefined) {
+              setGenerationProgress(percent);
+            }
+          } else if (type === 'success') {
+            if (result && result.schedules && result.schedules.length > 0) {
+              LocalDB.saveJadwal(result.schedules);
+              
+              const finalConflicts = LocalDB.getConflicts();
+              const totalLessonsNeeded = pengampu.reduce((acc, curr) => acc + curr.jumlah_jam, 0);
+
+              setStats({
+                executionTimeMs: result.executionTimeMs,
+                score: Math.round(result.score),
+                totalLessonsNeeded,
+                totalLessonsPlotted: result.schedules.length,
+                totalConflicts: finalConflicts.length
+              });
+              setGenerationProgress(100);
+              setLogMessages(prev => [
+                `🎉 SUKSES GENERATOR (Latar Belakang): Jadwal berhasil dibuat secara otomatis dalam ${result.executionTimeMs} ms dengan total ${result.schedules.length} slot terisi!`,
+                ...prev
+              ]);
+              setActiveTab('grid');
+            } else {
+              setLogMessages(prev => ['⚠️ Gagal menyusun jadwal. Constraints terlalu ketat, mohon kurangi batasan preferensi guru atau tambahkan ruangan.', ...prev]);
+            }
+            setIsGenerating(false);
+            loadDatabase();
+            worker.terminate();
+            generatorWorkerRef.current = null;
+          } else if (type === 'error') {
+            setLogMessages(prev => [`Error: ${error}`, ...prev]);
+            setIsGenerating(false);
+            worker.terminate();
+            generatorWorkerRef.current = null;
+          }
+        };
+
+        worker.onerror = (err) => {
+          console.error("Worker error, falling back to sync mode:", err);
+          runSyncTimetableGeneration();
+        };
+
+        // Send payload to start processing in the background Worker thread!
+        worker.postMessage({
+          guru,
+          mapel,
+          kelas,
+          ruangan,
+          jamPelajaran,
+          pengampu,
+          preferensi,
+          hariAktif,
+          batasJamHari,
+          algorithm
+        });
+
+      } catch (workerErr) {
+        console.warn("Failed to spawn Web Worker, falling back to synchronous execution:", workerErr);
+        runSyncTimetableGeneration();
+      }
+    } else {
+      // Fallback to synchronous execution
+      runSyncTimetableGeneration();
+    }
+  };
+
+  const runSyncTimetableGeneration = () => {
+    setGenerationProgress(0);
     setTimeout(() => {
       try {
         const solver = new CalendarScheduler(
@@ -672,28 +855,39 @@ export default function AdministrativeDashboard() {
           jamPelajaran,
           pengampu,
           preferensi,
-          hariAktif
+          hariAktif,
+          batasJamHari
         );
 
         let result;
         if (algorithm === 'csp') {
-          result = solver.solveCSP((msg) => {
+          result = solver.solveCSP((msg, percent) => {
             setLogMessages(prev => [msg, ...prev]);
+            if (percent !== undefined) setGenerationProgress(percent);
           });
         } else {
-          result = solver.solveGenetic((msg) => {
+          result = solver.solveGenetic((msg, percent) => {
             setLogMessages(prev => [msg, ...prev]);
+            if (percent !== undefined) setGenerationProgress(percent);
           });
         }
 
         if (result.schedules.length > 0) {
           LocalDB.saveJadwal(result.schedules);
+          
+          const finalConflicts = LocalDB.getConflicts();
+          const totalLessonsNeeded = pengampu.reduce((acc, curr) => acc + curr.jumlah_jam, 0);
+
           setStats({
             executionTimeMs: result.executionTimeMs,
-            score: Math.round(result.score)
+            score: Math.round(result.score),
+            totalLessonsNeeded,
+            totalLessonsPlotted: result.schedules.length,
+            totalConflicts: finalConflicts.length
           });
+          setGenerationProgress(100);
           setLogMessages(prev => [
-            `🎉 SUKSES GENERATOR: Jadwal berhasil dibuat secara otomatis dalam ${result.executionTimeMs} ms dengan total ${result.schedules.length} slot terisi sempurna!`,
+            `🎉 SUKSES GENERATOR: Jadwal berhasil dibuat secara otomatis dalam ${result.executionTimeMs} ms dengan total ${result.schedules.length} slot terisi!`,
             ...prev
           ]);
           setActiveTab('grid');
@@ -1232,6 +1426,19 @@ export default function AdministrativeDashboard() {
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-2">
               Jadwal Pelajaran Sekolah Otomatis <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md font-bold font-sans">PRO</span>
+              {isSupabaseModeActive() && (
+                isCloudSyncing ? (
+                  <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-md font-bold font-sans flex items-center gap-1.5 animate-pulse">
+                    <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                    Menyinkronkan...
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-md font-bold font-sans flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                    Cloud Aktif
+                  </span>
+                )
+              )}
             </h1>
             <p className="text-[11px] text-slate-400 font-medium">Penyusunan Jadwal Tanpa Bentrok • {currentUser?.nama_sekolah || 'SMAN 1 AI'} (Akun: @{currentUser?.username})</p>
           </div>
@@ -1456,6 +1663,8 @@ export default function AdministrativeDashboard() {
               isGenerating={isGenerating}
               stats={stats}
               handleGenerateAutomatedTimetable={handleGenerateAutomatedTimetable}
+              handleCancelGeneration={handleCancelGeneration}
+              generationProgress={generationProgress}
             />
           )}
 
@@ -1491,8 +1700,10 @@ export default function AdministrativeDashboard() {
             <PengaturanWaktuTab
               hariAktif={hariAktif}
               jamPelajaran={jamPelajaran}
+              batasJamHari={batasJamHari}
               onUpdateHariAktif={setHariAktif}
               onUpdateJamPelajaran={setJamPelajaran}
+              onUpdateBatasJamHari={handleUpdateBatasJamHari}
               loadDatabase={loadDatabase}
               setLogMessages={setLogMessages}
             />

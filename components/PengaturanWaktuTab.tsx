@@ -8,8 +8,10 @@ import { LocalDB } from '../lib/db';
 interface PengaturanWaktuTabProps {
   hariAktif: Hari[];
   jamPelajaran: JamPelajaran[];
+  batasJamHari: Record<Hari, number>;
   onUpdateHariAktif: (hari: Hari[]) => void;
   onUpdateJamPelajaran: (jam: JamPelajaran[]) => void;
+  onUpdateBatasJamHari: (batas: Record<Hari, number>) => void;
   loadDatabase: () => void;
   setLogMessages: React.Dispatch<React.SetStateAction<string[]>>;
 }
@@ -19,8 +21,10 @@ const SEMUA_HARI: Hari[] = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'
 export default function PengaturanWaktuTab({
   hariAktif,
   jamPelajaran,
+  batasJamHari,
   onUpdateHariAktif,
   onUpdateJamPelajaran,
+  onUpdateBatasJamHari,
   loadDatabase,
   setLogMessages,
 }: PengaturanWaktuTabProps) {
@@ -278,6 +282,49 @@ export default function PengaturanWaktuTab({
                   🕌 Pesantren: Sabtu - Kamis <span className="text-slate-400 font-normal">(Jumat Libur)</span>
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* BATAS JAM MAKSIMAL PER HARI */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+              <Clock className="w-5 h-5 text-indigo-600" />
+              <h3 className="font-bold text-slate-800">Batas Jam Maksimal per Hari</h3>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Tentukan batas jam pelajaran maksimal untuk masing-masing hari aktif (misal: hari Jumat hanya sampai jam ke-6).
+            </p>
+            <div className="space-y-3">
+              {hariAktif.map((day) => {
+                const currentLimit = batasJamHari[day] ?? jamPelajaran.length;
+                return (
+                  <div key={day} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/50">
+                    <span className="text-xs font-semibold text-slate-700">{day}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-slate-400">Maks:</span>
+                      <select
+                        value={currentLimit}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          const updated = { ...batasJamHari, [day]: val };
+                          onUpdateBatasJamHari(updated);
+                          setLogMessages(prev => [
+                            `⏰ Batas jam maksimal hari ${day} diperbarui menjadi Jam Ke-${val}`,
+                            ...prev
+                          ]);
+                        }}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        {jamPelajaran.map((p) => (
+                          <option key={p.jam_ke} value={p.jam_ke}>
+                            Jam Ke-{p.jam_ke} ({p.jam_mulai})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
