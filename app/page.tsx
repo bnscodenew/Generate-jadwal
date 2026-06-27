@@ -597,6 +597,13 @@ export default function AdministrativeDashboard() {
     }
   };
 
+  const handleUpdateGuru = (updatedGuru: Guru) => {
+    const updated = guru.map(g => g.id === updatedGuru.id ? updatedGuru : g);
+    LocalDB.saveGuru(updated);
+    loadDatabase();
+    setLogMessages(prev => [`Biodata guru ${updatedGuru.nama} berhasil diperbarui.`, ...prev]);
+  };
+
   // --- CRUD MAPEL ---
   const handleAddMapel = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1610,6 +1617,7 @@ export default function AdministrativeDashboard() {
               setNewGuru={setNewGuru}
               handleAddGuru={handleAddGuru}
               handleDeleteGuru={handleDeleteGuru}
+              onUpdateGuru={handleUpdateGuru}
               onSavePreferensi={handleSavePreferensi}
               hariAktif={hariAktif}
             />
