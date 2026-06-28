@@ -1685,13 +1685,22 @@ export default function GridTab({
               
               <style dangerouslySetInnerHTML={{ __html: `
                 @media print {
+                  :root {
+                    color-scheme: light !important;
+                  }
+                  html, body, #main-root, main, .print-only-container {
+                    background: #ffffff !important;
+                    background-color: #ffffff !important;
+                    color: #000000 !important;
+                    color-scheme: light !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                  }
                   @page {
                     size: A4 landscape !important;
                     margin: 8mm 12mm 8mm 12mm !important;
                   }
-                  body {
-                    background: white !important;
-                    color: black !important;
+                  * {
                     -webkit-print-color-adjust: exact !important;
                     print-color-adjust: exact !important;
                   }
