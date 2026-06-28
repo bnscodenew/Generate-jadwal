@@ -16,6 +16,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     nama_sekolah VARCHAR(255) NOT NULL,
+    is_pro BOOLEAN DEFAULT false,
+    serial_key VARCHAR(50),
+    activated_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -259,10 +262,13 @@ CREATE INDEX IF NOT EXISTS idx_teaching_assignments_composite_v2 ON public.teach
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, nama_sekolah)
+  INSERT INTO public.profiles (id, nama_sekolah, is_pro, serial_key, activated_at)
   VALUES (
     new.id,
-    COALESCE(new.raw_user_meta_data->>'nama_sekolah', 'Nama Sekolah Baru')
+    COALESCE(new.raw_user_meta_data->>'nama_sekolah', 'Nama Sekolah Baru'),
+    COALESCE((new.raw_user_meta_data->>'is_pro')::boolean, false),
+    new.raw_user_meta_data->>'serial_key',
+    CASE WHEN new.raw_user_meta_data->>'activated_at' IS NOT NULL THEN (new.raw_user_meta_data->>'activated_at')::timestamp with time zone ELSE NULL END
   );
   RETURN NEW;
 END;

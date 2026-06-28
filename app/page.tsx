@@ -24,7 +24,8 @@ import {
   Settings,
   Trash2,
   Info,
-  X
+  X,
+  ShieldCheck
 } from 'lucide-react';
 
 import { 
@@ -55,6 +56,8 @@ import GridTab from '../components/GridTab';
 import KonflikTab from '../components/KonflikTab';
 import SupabaseTab from '../components/SupabaseTab';
 import PengaturanWaktuTab from '../components/PengaturanWaktuTab';
+import ActivationTab from '../components/ActivationTab';
+import AdminTab from '../components/AdminTab';
 
 export default function AdministrativeDashboard() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -994,7 +997,8 @@ export default function AdministrativeDashboard() {
           preferensi,
           hariAktif,
           batasJamHari,
-          algorithm
+          algorithm,
+          isPro: currentUser?.is_pro
         });
 
       } catch (workerErr) {
@@ -1033,7 +1037,7 @@ export default function AdministrativeDashboard() {
           result = solver.solveGenetic((msg, percent) => {
             setLogMessages(prev => [msg, ...prev]);
             if (percent !== undefined) setGenerationProgress(percent);
-          });
+          }, currentUser?.is_pro);
         }
 
         if (result.schedules.length > 0) {
@@ -1609,7 +1613,12 @@ export default function AdministrativeDashboard() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-2">
-              Jadwalify <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md font-bold font-sans">PRO</span>
+              Jadwalify 
+              {currentUser?.is_pro ? (
+                <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md font-bold font-sans">PRO</span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded-md font-bold font-sans">TRIAL</span>
+              )}
               {isSupabaseModeActive() && (
                 isCloudSyncing ? (
                   <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-md font-bold font-sans flex items-center gap-1.5 animate-pulse" title="Sedang mengunggah perubahan otomatis ke Supabase Cloud">
@@ -1746,6 +1755,26 @@ export default function AdministrativeDashboard() {
                 </span>
               )}
             </button>
+
+            <div className="text-slate-400 font-mono text-[10px] tracking-widest px-2 mt-4 mb-2 uppercase border-t border-slate-100 pt-4 font-bold">Lisensi &amp; Aktivasi</div>
+
+            <button 
+              onClick={() => handleSetActiveTab('activation')} 
+              className={`flex items-start gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all font-semibold cursor-pointer ${activeTab === 'activation' ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
+            >
+              <ShieldCheck className={`w-4 h-4 shrink-0 mt-0.5 ${activeTab === 'activation' ? 'text-indigo-600' : 'text-slate-400'}`} />
+              <span className="text-left leading-tight">Aktivasi Lisensi PRO</span>
+            </button>
+
+            {currentUser?.username?.toLowerCase() === 'admin' && (
+              <button 
+                onClick={() => handleSetActiveTab('admin')} 
+                className={`flex items-start gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all font-semibold cursor-pointer ${activeTab === 'admin' ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
+              >
+                <Database className={`w-4 h-4 shrink-0 mt-0.5 ${activeTab === 'admin' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                <span className="text-left leading-tight">Admin Panel</span>
+              </button>
+            )}
 
             <div className="text-slate-400 font-mono text-[10px] tracking-widest px-2 mt-4 mb-2 uppercase border-t border-slate-100 pt-4 font-bold">Aksi Sistem</div>
 
@@ -1917,6 +1946,21 @@ export default function AdministrativeDashboard() {
 
           {activeTab === 'supabase' && (
             <SupabaseTab setLogMessages={setLogMessages} />
+          )}
+
+          {activeTab === 'activation' && (
+            <ActivationTab
+              currentUser={currentUser}
+              setCurrentUser={setCurrentUser}
+              setLogMessages={setLogMessages}
+            />
+          )}
+
+          {activeTab === 'admin' && currentUser?.username?.toLowerCase() === 'admin' && (
+            <AdminTab
+              currentUser={currentUser}
+              setLogMessages={setLogMessages}
+            />
           )}
         </main>
       </div>

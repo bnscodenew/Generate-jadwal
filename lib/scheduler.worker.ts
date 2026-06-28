@@ -13,7 +13,8 @@ ctx.onmessage = function (e: MessageEvent) {
     preferensi,
     hariAktif,
     batasJamHari,
-    algorithm
+    algorithm,
+    isPro
   } = e.data;
 
   try {
@@ -38,7 +39,7 @@ ctx.onmessage = function (e: MessageEvent) {
     if (algorithm === 'csp') {
       result = solver.solveCSP(callback);
     } else {
-      result = solver.solveGenetic(callback);
+      result = solver.solveGenetic(callback, isPro);
     }
 
     ctx.postMessage({ type: 'success', result });

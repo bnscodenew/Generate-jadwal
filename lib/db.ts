@@ -43,10 +43,10 @@ export class LocalDB {
     localStorage.setItem(prefixedKey, JSON.stringify(data));
   }
 
-  // --- AUTH SERVICES ---
+  // --- AUTH & SUBSCRIPTION SERVICES ---
   static getUsers(): any[] {
     return this.getStored<any[]>('sch_users_list', [
-      { username: 'admin', password: 'password123', nama_sekolah: 'SMAN 1 AI INDONESIA', role: 'Administrator' }
+      { username: 'admin', password: 'password123', nama_sekolah: 'SMAN 1 AI INDONESIA', role: 'Administrator', is_pro: true }
     ]);
   }
 
@@ -60,7 +60,7 @@ export class LocalDB {
     if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
       return { success: false, message: 'Username sudah digunakan oleh akun lain.' };
     }
-    users.push({ username, password, nama_sekolah, role: 'Administrator' });
+    users.push({ username, password, nama_sekolah, role: 'Administrator', is_pro: false });
     this.saveUsers(users);
     return { success: true, message: 'Registrasi berhasil! Silakan login.' };
   }
@@ -81,6 +81,129 @@ export class LocalDB {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('sch_current_user');
     }
+  }
+
+  // --- SERIAL KEY & LICENSE SERVICES ---
+  static getSerialKeys(): any[] {
+    const defaultKeys = [
+      { key: 'JADW-PRO-8842-8921', is_used: false, used_by: null, created_at: new Date(2026, 5, 28, 10, 0, 0).toISOString(), activated_at: null },
+      { key: 'JADW-PRO-1192-3345', is_used: false, used_by: null, created_at: new Date(2026, 5, 28, 10, 0, 0).toISOString(), activated_at: null },
+      { key: 'JADW-PRO-7756-9081', is_used: false, used_by: null, created_at: new Date(2026, 5, 28, 10, 0, 0).toISOString(), activated_at: null }
+    ];
+    return this.getStored<any[]>('sch_serial_keys', defaultKeys);
+  }
+
+  static saveSerialKeys(keys: any[]) {
+    this.setStored('sch_serial_keys', keys);
+  }
+
+  static generateSerialKeys(quantity: number): string[] {
+    const keys = this.getSerialKeys();
+    const newKeys: string[] = [];
+    for (let i = 0; i < quantity; i++) {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let part1 = '';
+      let part2 = '';
+      for (let j = 0; j < 4; j++) {
+        part1 += chars.charAt(Math.floor(Math.random() * chars.length));
+        part2 += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      const newKey = `JADW-PRO-${part1}-${part2}`;
+      keys.push({
+        key: newKey,
+        is_used: false,
+        used_by: null,
+        created_at: new Date().toISOString(),
+        activated_at: null
+      });
+      newKeys.push(newKey);
+    }
+    this.saveSerialKeys(keys);
+    return newKeys;
+  }
+
+  static activateSerialKey(username: string, keyString: string): { success: boolean; message: string } {
+    const trimmedKey = keyString.trim().toUpperCase();
+    const keys = this.getSerialKeys();
+    const keyIndex = keys.findIndex(k => k.key.toUpperCase() === trimmedKey);
+
+    if (keyIndex === -1) {
+      return { success: false, message: 'Kode serial tidak valid. Pastikan format penulisan benar.' };
+    }
+
+    const keyObj = keys[keyIndex];
+    if (keyObj.is_used) {
+      return { success: false, message: `Kode serial sudah digunakan oleh pengguna @${keyObj.used_by}.` };
+    }
+
+    // Mark key as used
+    keyObj.is_used = true;
+    keyObj.used_by = username;
+    keyObj.activated_at = new Date().toISOString();
+    this.saveSerialKeys(keys);
+
+    // Update user status
+    const users = this.getUsers();
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+    if (userIndex !== -1) {
+      users[userIndex].is_pro = true;
+      users[userIndex].serial_key = trimmedKey;
+      users[userIndex].activated_at = keyObj.activated_at;
+      this.saveUsers(users);
+
+      // Also update currently logged in user if it matches
+      if (typeof window !== 'undefined') {
+        const currentUser = this.getCurrentUser();
+        if (currentUser && currentUser.username.toLowerCase() === username.toLowerCase()) {
+          currentUser.is_pro = true;
+          currentUser.serial_key = trimmedKey;
+          currentUser.activated_at = keyObj.activated_at;
+          localStorage.setItem('sch_current_user', JSON.stringify(currentUser));
+        }
+      }
+    }
+
+    return { success: true, message: 'Selamat! Akun Anda berhasil diaktivasi ke Jadwalify PRO.' };
+  }
+
+  static updateUserProStatus(username: string, isPro: boolean, keyString?: string): boolean {
+    const users = this.getUsers();
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+    if (userIndex === -1) return false;
+
+    users[userIndex].is_pro = isPro;
+    if (isPro) {
+      users[userIndex].serial_key = keyString || 'ADMIN-ACTIVATED';
+      users[userIndex].activated_at = new Date().toISOString();
+    } else {
+      // If downgraded, release any keys associated with them
+      const serialKey = users[userIndex].serial_key;
+      if (serialKey) {
+        const keys = this.getSerialKeys();
+        const kIdx = keys.findIndex(k => k.key === serialKey);
+        if (kIdx !== -1) {
+          keys[kIdx].is_used = false;
+          keys[kIdx].used_by = null;
+          keys[kIdx].activated_at = null;
+          this.saveSerialKeys(keys);
+        }
+      }
+      users[userIndex].serial_key = null;
+      users[userIndex].activated_at = null;
+    }
+    this.saveUsers(users);
+
+    // Update currently logged in user if applicable
+    if (typeof window !== 'undefined') {
+      const currentUser = this.getCurrentUser();
+      if (currentUser && currentUser.username.toLowerCase() === username.toLowerCase()) {
+        currentUser.is_pro = isPro;
+        currentUser.serial_key = users[userIndex].serial_key;
+        currentUser.activated_at = users[userIndex].activated_at;
+        localStorage.setItem('sch_current_user', JSON.stringify(currentUser));
+      }
+    }
+    return true;
   }
 
   static getCurrentUser(): any | null {

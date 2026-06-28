@@ -1,0 +1,287 @@
+'use client';
+
+import React, { useState } from 'react';
+import { Key, CheckCircle, AlertCircle, CreditCard, Lock, ShieldCheck, HelpCircle, Sparkles } from 'lucide-react';
+import { LocalDB } from '../lib/db';
+
+interface ActivationTabProps {
+  currentUser: any;
+  setCurrentUser: (user: any) => void;
+  setLogMessages: React.Dispatch<React.SetStateAction<string[]>>;
+}
+
+export default function ActivationTab({ currentUser, setCurrentUser, setLogMessages }: ActivationTabProps) {
+  const [serialKeyInput, setSerialKeyInput] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleActivate = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    if (!serialKeyInput.trim()) {
+      setErrorMsg('Masukkan kode serial terlebih dahulu.');
+      return;
+    }
+
+    setLoading(true);
+
+    setTimeout(() => {
+      const result = LocalDB.activateSerialKey(currentUser.username, serialKeyInput);
+      setLoading(false);
+
+      if (result.success) {
+        setSuccessMsg(result.message);
+        // Refresh currentUser state
+        const updatedUser = LocalDB.getCurrentUser();
+        if (updatedUser) {
+          setCurrentUser(updatedUser);
+        }
+        setLogMessages(prev => [
+          `Akun @${currentUser.username} berhasil diaktivasi menggunakan serial key.`,
+          ...prev
+        ]);
+        setSerialKeyInput('');
+      } else {
+        setErrorMsg(result.message);
+      }
+    }, 800);
+  };
+
+  const isPro = currentUser?.is_pro;
+
+  return (
+    <div className="space-y-6 font-sans">
+      {/* Header Panel */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            Status Lisensi &amp; Aktivasi
+          </h2>
+          <p className="text-xs text-slate-500 font-medium">
+            Kelola langganan dan aktivasi lisensi profesional Jadwalify Anda di sini.
+          </p>
+        </div>
+        <div className="flex items-center">
+          {isPro ? (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold animate-pulse">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              PROFESIONAL (PRO) AKTIF
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold">
+              <AlertCircle className="w-4 h-4 text-amber-600" />
+              VERSI TRIAL (TERBATAS)
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left: Input & Key Details */}
+        <div className="lg:col-span-7 space-y-6">
+          {isPro ? (
+            // PRO ACTIVE LAYOUT
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 border border-indigo-950 text-white rounded-2xl p-6 shadow-md relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                <Sparkles className="w-40 h-40" />
+              </div>
+              
+              <div className="flex items-center gap-3 mb-6">
+                <div className="bg-white/10 p-2.5 rounded-xl border border-white/10">
+                  <ShieldCheck className="w-6 h-6 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-indigo-300 font-bold tracking-widest uppercase font-mono">Lisenasi Premium Terverifikasi</div>
+                  <h3 className="text-lg font-black tracking-tight text-white">Jadwalify Professional</h3>
+                </div>
+              </div>
+
+              <div className="space-y-4 bg-white/5 p-4 rounded-xl border border-white/5 backdrop-blur-xs font-mono text-xs">
+                <div className="flex justify-between border-b border-white/10 pb-2">
+                  <span className="text-slate-300">Pemilik Akun</span>
+                  <span className="font-bold text-white">@{currentUser.username}</span>
+                </div>
+                <div className="flex justify-between border-b border-white/10 pb-2">
+                  <span className="text-slate-300">Nama Sekolah</span>
+                  <span className="font-bold text-indigo-200 truncate max-w-[180px]" title={currentUser.nama_sekolah}>
+                    {currentUser.nama_sekolah}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-white/10 pb-2">
+                  <span className="text-slate-300">Kunci Serial</span>
+                  <span className="font-bold text-emerald-300">
+                    {currentUser.serial_key ? `${currentUser.serial_key.substring(0, 12)}****` : 'ADMIN-ACTIVATED'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-300">Tanggal Aktivasi</span>
+                  <span className="font-bold text-slate-200">
+                    {currentUser.activated_at ? new Date(currentUser.activated_at).toLocaleDateString('id-ID', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric'
+                    }) : '-'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex items-center gap-2 text-xs text-indigo-200 font-semibold bg-indigo-500/10 p-3 rounded-lg border border-indigo-500/20">
+                <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                <span>Terima kasih! Dukungan Anda memungkinkan kami terus menyempurnakan algoritma penataan jadwal cerdas ini.</span>
+              </div>
+            </div>
+          ) : (
+            // TRIAL ACTIVATION FORM
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-100 text-indigo-600">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Aktivasi Kunci Serial</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold">Masukkan 16 karakter kunci serial untuk membuka akses PRO.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleActivate} className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1.5 uppercase font-mono tracking-wider">
+                    Kode Serial (Serial Key)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="JADW-PRO-XXXX-XXXX"
+                      value={serialKeyInput}
+                      onChange={(e) => setSerialKeyInput(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition uppercase font-mono"
+                      maxLength={24}
+                      disabled={loading}
+                    />
+                    <Key className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  </div>
+                </div>
+
+                {errorMsg && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg text-xs font-semibold text-rose-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>{errorMsg}</span>
+                  </div>
+                )}
+
+                {successMsg && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-xs font-semibold text-emerald-700 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>{successMsg}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-sm hover:shadow-md disabled:opacity-75 flex items-center justify-center gap-2 cursor-pointer text-sm"
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Memproses Aktivasi...
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      Aktivasi Sekarang
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Trial Limitations Card */}
+          {!isPro && (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+              <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider font-mono">Akses Terbatas Akun Trial</h4>
+              <div className="space-y-2.5 text-xs text-slate-600 font-semibold leading-relaxed">
+                <p className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span><strong>Format PDF Terbatas:</strong> Hasil cetak master tidak didukung oleh styling kustom premium.</span>
+                </p>
+                <p className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span><strong>Batas Penjadwalan:</strong> Algoritma Genetika hanya terbatas pada 5 generasi kalkulasi.</span>
+                </p>
+                <p className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span><strong>Cloud Sync:</strong> Tidak dapat mengaktifkan sinkronisasi database cloud otomatis.</span>
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Benefits & FAQ */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Pro Benefits Panel */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+            <h3 className="text-sm font-black text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-indigo-600" />
+              Keunggulan Akun Profesional (PRO)
+            </h3>
+
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <div className="bg-emerald-50 p-2 rounded-lg text-emerald-600 h-8 w-8 shrink-0 flex items-center justify-center font-bold">✓</div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">PDF Cetak Profesional Kustom</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">Cetak jadwal kolektif super bersih dengan layout landscape, footer tanda tangan, dan legenda otomatis.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="bg-emerald-50 p-2 rounded-lg text-emerald-600 h-8 w-8 shrink-0 flex items-center justify-center font-bold">✓</div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">Optimasi Genetika Tanpa Batas</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">Temukan solusi jadwal sekolah super padat dengan ratusan generasi fitness kalkulasi bebas bentrok.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="bg-emerald-50 p-2 rounded-lg text-emerald-600 h-8 w-8 shrink-0 flex items-center justify-center font-bold">✓</div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">Pencadangan Cloud Otomatis</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">Hubungkan jadwal sekolah Anda secara reaktif ke Supabase Cloud untuk kolaborasi multi-perangkat.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Licensing FAQ */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+              <HelpCircle className="w-4 h-4 text-slate-400" />
+              Pertanyaan Umum (FAQ)
+            </h3>
+
+            <div className="space-y-3 text-[11px] font-semibold text-slate-600">
+              <div className="border-b border-slate-50 pb-2.5">
+                <h4 className="font-bold text-slate-800 mb-0.5">Bagaimana cara mendapatkan Kode Serial?</h4>
+                <p className="text-slate-500 leading-relaxed">Anda dapat menghubungi administrator platform atau melakukan pembelian lisensi resmi melalui saluran distribusi resmi kami.</p>
+              </div>
+              <div className="border-b border-slate-50 pb-2.5">
+                <h4 className="font-bold text-slate-800 mb-0.5">Apakah Lisensi PRO berlaku selamanya?</h4>
+                <p className="text-slate-500 leading-relaxed">Ya, sekali diaktifkan, lisensi PRO terikat permanen dengan akun sekolah Anda tanpa masa kedaluwarsa.</p>
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-800 mb-0.5">Dapatkah satu Kode Serial digunakan berkali-kali?</h4>
+                <p className="text-slate-500 leading-relaxed">Tidak. Demi keamanan data, satu kode serial hanya berlaku unik untuk satu aktivasi akun sekolah saja.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

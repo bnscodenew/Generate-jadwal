@@ -593,7 +593,7 @@ export class CalendarScheduler {
   }
 
   // --- ALGORITMA 2: GENETIC ALGORITHM (OPSIONAL TAMBAHAN UNTUK DATA BESAR) ---
-  public solveGenetic(onProgress?: (msg: string, percent?: number) => void): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
+  public solveGenetic(onProgress?: (msg: string, percent?: number) => void, isPro: boolean = true): { schedules: Jadwal[]; score: number; executionTimeMs: number } {
     const startTime = performance.now();
     const variables = this.generateVariables();
     const periodsList = this.periods.map(p => p.jam_ke);
@@ -602,10 +602,11 @@ export class CalendarScheduler {
       return { schedules: [], score: 0, executionTimeMs: 0 };
     }
 
-    onProgress?.(`Memulai Algoritma Genetika dengan ${variables.length} variabel blok mengajar...`);
+    const modeLabel = isPro ? "Mode Profesional" : "Mode Trial (Terbatas 5 Generasi)";
+    onProgress?.(`Memulai Algoritma Genetika (${modeLabel}) dengan ${variables.length} variabel blok mengajar...`);
 
     const POPULATION_SIZE = 40;
-    const GENERATIONS = 80;
+    const GENERATIONS = isPro ? 80 : 5;
     const MUTATION_RATE = 0.15;
 
     // A Chromosome contains a DomainValue for each ScheduleVariable block
