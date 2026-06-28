@@ -88,7 +88,16 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
     const timer = setTimeout(() => {
       loadAdminData();
     }, 0);
-    return () => clearTimeout(timer);
+
+    // Auto-refresh data admin dari Supabase setiap 5 detik untuk multi-device real-time
+    const interval = setInterval(() => {
+      loadAdminData();
+    }, 5000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleGenerateKeys = async (e: React.FormEvent) => {
@@ -330,7 +339,12 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
             </div>
           </div>
           <div className="bg-slate-900 text-slate-100 rounded-xl p-3 font-mono text-[10px] whitespace-pre-wrap overflow-x-auto relative group max-h-40">
-            {`CREATE TABLE IF NOT EXISTS public.serial_keys (
+            {`CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
+RETURNS TEXT AS $$
+  SELECT role FROM public.profiles WHERE id = $1;
+$$ LANGUAGE sql SECURITY DEFINER;
+
+CREATE TABLE IF NOT EXISTS public.serial_keys (
     key VARCHAR(50) PRIMARY KEY,
     is_used BOOLEAN DEFAULT false,
     used_by VARCHAR(255),
@@ -344,10 +358,10 @@ ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
 -- Kebijakan Akses
 CREATE POLICY "Admin full access" ON public.serial_keys TO authenticated USING (
     (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
 ) WITH CHECK (
     (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
 );
 
 CREATE POLICY "Users read key" ON public.serial_keys FOR SELECT TO authenticated USING (true);
@@ -356,7 +370,12 @@ CREATE POLICY "Users update key" ON public.serial_keys FOR UPDATE TO authenticat
           <button
             onClick={() => {
               if (typeof navigator !== 'undefined') {
-                navigator.clipboard.writeText(`CREATE TABLE IF NOT EXISTS public.serial_keys (
+                navigator.clipboard.writeText(`CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
+RETURNS TEXT AS $$
+  SELECT role FROM public.profiles WHERE id = $1;
+$$ LANGUAGE sql SECURITY DEFINER;
+
+CREATE TABLE IF NOT EXISTS public.serial_keys (
     key VARCHAR(50) PRIMARY KEY,
     is_used BOOLEAN DEFAULT false,
     used_by VARCHAR(255),
@@ -368,10 +387,10 @@ ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Admin full access" ON public.serial_keys TO authenticated USING (
     (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
 ) WITH CHECK (
     (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
 );
 
 CREATE POLICY "Users read key" ON public.serial_keys FOR SELECT TO authenticated USING (true);

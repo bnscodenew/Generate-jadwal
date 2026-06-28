@@ -426,8 +426,13 @@ export default function AdministrativeDashboard() {
     setHariAktif(LocalDB.getHariAktif());
     setBatasJamHari(LocalDB.getBatasJamHari());
 
-    // Auto sync to cloud Supabase if active, not skipped, and we are logged in as a Google user!
+    // Sync currentUser state in React with the local storage
     const currUser = LocalDB.getCurrentUser();
+    if (currUser) {
+      setCurrentUser(currUser);
+    }
+
+    // Auto sync to cloud Supabase if active, not skipped, and we are logged in as a Google user!
     const isGoogleUser = currUser?.isGoogle || false;
 
     if (isSupabaseModeActive() && !skipCloudSync && isGoogleUser) {

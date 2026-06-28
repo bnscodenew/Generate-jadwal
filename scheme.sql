@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- Mengaktifkan Row Level Security (RLS) pada tabel profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+-- Fungsi pembantu dengan SECURITY DEFINER untuk mengecek role tanpa menyebabkan rekursi RLS
+CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
+RETURNS TEXT AS $$
+  SELECT role FROM public.profiles WHERE id = $1;
+$$ LANGUAGE sql SECURITY DEFINER;
+
 -- Kebijakan Keamanan (Policies) untuk profiles
 CREATE POLICY "Pengguna dapat membaca profil mereka sendiri atau admin membaca semua" 
     ON public.profiles FOR SELECT 
@@ -42,7 +48,7 @@ CREATE POLICY "Pengguna dapat membaca profil mereka sendiri atau admin membaca s
         OR 
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
         OR
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     );
 
 CREATE POLICY "Pengguna dapat memperbarui profil sendiri atau admin memperbarui semua" 
@@ -52,7 +58,7 @@ CREATE POLICY "Pengguna dapat memperbarui profil sendiri atau admin memperbarui 
         OR 
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
         OR
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     );
 
 CREATE POLICY "Pengguna dapat memasukkan data profil baru saat register" 
@@ -64,7 +70,7 @@ CREATE POLICY "Admin dapat menghapus profil"
     USING (
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
         OR
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     );
 
 
@@ -90,12 +96,12 @@ CREATE POLICY "Admin has full access to serial_keys"
     USING (
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
         OR
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     )
     WITH CHECK (
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
         OR
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     );
 
 CREATE POLICY "Users can read serial_keys to validate"
