@@ -19,6 +19,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     activated_at TIMESTAMP WITH TIME ZONE,
     role VARCHAR(50) DEFAULT 'user',
     email VARCHAR(255),
+    logo_sekolah TEXT,
+    nama_kepsek VARCHAR(255),
+    nip_kepsek VARCHAR(50),
+    nama_koordinator VARCHAR(255),
+    nip_koordinator VARCHAR(50),
+    kota_cetak VARCHAR(100),
+    tahun_ajaran VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

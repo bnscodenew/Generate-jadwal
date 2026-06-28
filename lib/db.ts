@@ -217,6 +217,52 @@ export class LocalDB {
     }
   }
 
+  // --- SCHOOL PROFILE AND SIGNATURE DETAILS ---
+  static getSchoolProfile(): {
+    nama_sekolah: string;
+    logo_sekolah: string | null;
+    nama_kepsek: string;
+    nip_kepsek: string;
+    nama_koordinator: string;
+    nip_koordinator: string;
+    kota: string;
+    tahun_ajaran: string;
+  } {
+    const user = this.getCurrentUser();
+    const defaultName = user?.nama_sekolah || 'SMAN 1 AI INDONESIA';
+    return this.getStored<any>('sch_school_profile', {
+      nama_sekolah: defaultName,
+      logo_sekolah: null,
+      nama_kepsek: 'Drs. H. Mulyono, M.Pd.',
+      nip_kepsek: '19740815 200003 1 002',
+      nama_koordinator: 'Siti Aminah, S.Pd.',
+      nip_koordinator: '19810312 200801 2 015',
+      kota: 'Jakarta',
+      tahun_ajaran: 'Tahun Ajaran 2026/2027',
+    });
+  }
+
+  static saveSchoolProfile(profile: any) {
+    this.setStored('sch_school_profile', profile);
+    
+    // Update currently logged in user to keep state in sync
+    if (typeof window !== 'undefined') {
+      const currentUser = this.getCurrentUser();
+      if (currentUser) {
+        currentUser.nama_sekolah = profile.nama_sekolah;
+        localStorage.setItem('sch_current_user', JSON.stringify(currentUser));
+        
+        // Update user inside sch_users_list as well
+        const users = this.getUsers();
+        const userIndex = users.findIndex(u => u.username.toLowerCase() === currentUser.username.toLowerCase());
+        if (userIndex !== -1) {
+          users[userIndex].nama_sekolah = profile.nama_sekolah;
+          this.saveUsers(users);
+        }
+      }
+    }
+  }
+
   // --- GET ALL ---
   static getGuru(): Guru[] {
     return this.getStored<Guru[]>('sch_guru', MOCK_GURU);

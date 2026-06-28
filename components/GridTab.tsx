@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Download, FileText, Info, Trash2, Calendar, Play, AlertTriangle, CheckCircle, HelpCircle, BarChart3, BookOpen, Users, Clock, Printer, X, Settings } from 'lucide-react';
 import { Guru, Kelas, MataPelajaran, Ruangan, JamPelajaran, Jadwal, Hari, KonflikJadwal, PengampuMataPelajaran } from '../lib/types';
 import { LocalDB } from '../lib/db';
@@ -63,13 +63,23 @@ export default function GridTab({
   const [useTeacherCode, setUseTeacherCode] = useState(false);
   const [printUseTeacherCode, setPrintUseTeacherCode] = useState(false);
   const [printSchoolName, setPrintSchoolName] = useState(() => {
-    return LocalDB.getCurrentUser()?.nama_sekolah || 'SMA NEGERI 1 AI INDONESIA';
+    return LocalDB.getSchoolProfile()?.nama_sekolah || 'SMA NEGERI 1 AI INDONESIA';
   });
-  const [printAcademicYear, setPrintAcademicYear] = useState('Tahun Ajaran 2026/2027');
-  const [printPrincipalName, setPrintPrincipalName] = useState('Drs. H. Mulyono, M.Pd.');
-  const [printPrincipalNip, setPrintPrincipalNip] = useState('19740815 200003 1 002');
-  const [printCoordinatorName, setPrintCoordinatorName] = useState('Siti Aminah, S.Pd.');
-  const [printCoordinatorNip, setPrintCoordinatorNip] = useState('19810312 200801 2 015');
+  const [printAcademicYear, setPrintAcademicYear] = useState(() => {
+    return LocalDB.getSchoolProfile()?.tahun_ajaran || 'Tahun Ajaran 2026/2027';
+  });
+  const [printPrincipalName, setPrintPrincipalName] = useState(() => {
+    return LocalDB.getSchoolProfile()?.nama_kepsek || 'Drs. H. Mulyono, M.Pd.';
+  });
+  const [printPrincipalNip, setPrintPrincipalNip] = useState(() => {
+    return LocalDB.getSchoolProfile()?.nip_kepsek || '19740815 200003 1 002';
+  });
+  const [printCoordinatorName, setPrintCoordinatorName] = useState(() => {
+    return LocalDB.getSchoolProfile()?.nama_koordinator || 'Siti Aminah, S.Pd.';
+  });
+  const [printCoordinatorNip, setPrintCoordinatorNip] = useState(() => {
+    return LocalDB.getSchoolProfile()?.nip_koordinator || '19810312 200801 2 015';
+  });
   const [printScope, setPrintScope] = useState<'current' | 'all_classes' | 'all_teachers' | 'master_schedule'>('current');
   const [printDate, setPrintDate] = useState(() => {
     const today = new Date();
@@ -79,7 +89,26 @@ export default function GridTab({
     ];
     return `${today.getDate()} ${months[today.getMonth()]} ${today.getFullYear()}`;
   });
-  const [printCity, setPrintCity] = useState('Jakarta');
+  const [printCity, setPrintCity] = useState(() => {
+    return LocalDB.getSchoolProfile()?.kota || 'Jakarta';
+  });
+
+  // Sync state whenever print modal is opened
+  useEffect(() => {
+    if (showPrintModal) {
+      const timer = setTimeout(() => {
+        const p = LocalDB.getSchoolProfile();
+        setPrintSchoolName(p.nama_sekolah);
+        setPrintAcademicYear(p.tahun_ajaran);
+        setPrintPrincipalName(p.nama_kepsek);
+        setPrintPrincipalNip(p.nip_kepsek);
+        setPrintCoordinatorName(p.nama_koordinator);
+        setPrintCoordinatorNip(p.nip_koordinator);
+        setPrintCity(p.kota);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [showPrintModal]);
 
   // Helper untuk generate matrix jadwal mandiri per entitas (kelas/guru) sewaktu print massal
   const generateMatrix = (fType: 'kelas' | 'guru' | 'ruangan', fId: string) => {
@@ -1210,17 +1239,40 @@ export default function GridTab({
                 {/* Left: Logo & School Name */}
                 <div className="flex items-center gap-4">
                   {/* Elegant Emblem/Logo */}
-                  <div className="w-14 h-14 bg-[#16355D] rounded-xl flex flex-col items-center justify-center text-white border border-indigo-950 p-1 shrink-0 relative shadow-xs">
-                    {/* Tiny star */}
-                    <div className="absolute top-0.5 text-[7px] text-yellow-300">★</div>
-                    {/* Shield representation inside SVG */}
-                    <svg className="w-7 h-7 text-white mt-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                    </svg>
-                    {/* Open book inside logo */}
-                    <svg className="w-3.5 h-3.5 text-emerald-300 absolute bottom-2.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                    </svg>
+                  <div className="w-14 h-14 bg-white rounded-xl flex items-center justify-center border border-slate-200 p-1.5 shrink-0 relative shadow-xs overflow-hidden">
+                    {(() => {
+                      const logo = LocalDB.getSchoolProfile()?.logo_sekolah;
+                      if (logo) {
+                        if (logo.trim().startsWith('<svg')) {
+                          return (
+                            <div 
+                              className="w-full h-full flex items-center justify-center text-indigo-700"
+                              dangerouslySetInnerHTML={{ __html: logo }}
+                            />
+                          );
+                        } else {
+                          return (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img 
+                              src={logo} 
+                              alt="Logo Sekolah" 
+                              className="w-full h-full object-contain"
+                            />
+                          );
+                        }
+                      }
+                      return (
+                        <div className="w-full h-full bg-[#16355D] rounded-lg flex flex-col items-center justify-center text-white p-0.5 relative">
+                          <div className="absolute top-0 text-[6px] text-yellow-300">★</div>
+                          <svg className="w-5 h-5 text-white mt-0.5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                          </svg>
+                          <svg className="w-2.5 h-2.5 text-emerald-300 absolute bottom-1.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                        </div>
+                      );
+                    })()}
                   </div>
                   
                   {/* Vertical divider */}

@@ -25,7 +25,8 @@ import {
   Trash2,
   Info,
   X,
-  ShieldCheck
+  ShieldCheck,
+  School
 } from 'lucide-react';
 
 import { 
@@ -58,6 +59,7 @@ import SupabaseTab from '../components/SupabaseTab';
 import PengaturanWaktuTab from '../components/PengaturanWaktuTab';
 import ActivationTab from '../components/ActivationTab';
 import AdminTab from '../components/AdminTab';
+import SchoolProfileTab from '../components/SchoolProfileTab';
 
 export default function AdministrativeDashboard() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -1665,7 +1667,7 @@ export default function AdministrativeDashboard() {
                 )
               )}
             </h1>
-            <p className="text-[11px] text-slate-400 font-medium">Penyusunan Jadwal Tanpa Bentrok • {currentUser?.nama_sekolah || 'SMAN 1 AI'} (Akun: @{currentUser?.username})</p>
+            <p className="text-[11px] text-slate-400 font-medium">Penyusunan Jadwal Tanpa Bentrok • {currentUser?.nama_sekolah || (typeof window !== 'undefined' ? LocalDB.getSchoolProfile()?.nama_sekolah : '') || 'SMAN 1 AI'} (Akun: @{currentUser?.username})</p>
           </div>
         </div>
       </header>
@@ -1747,6 +1749,14 @@ export default function AdministrativeDashboard() {
             >
               <Settings className={`w-4 h-4 shrink-0 mt-0.5 ${activeTab === 'pengaturan_waktu' ? 'text-indigo-600' : 'text-slate-400'}`} />
               <span className="text-left leading-tight">Pengaturan Kalender &amp; Jam</span>
+            </button>
+
+            <button 
+              onClick={() => handleSetActiveTab('school_profile')} 
+              className={`flex items-start gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all font-semibold cursor-pointer ${activeTab === 'school_profile' ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
+            >
+              <School className={`w-4 h-4 shrink-0 mt-0.5 ${activeTab === 'school_profile' ? 'text-indigo-600' : 'text-slate-400'}`} />
+              <span className="text-left leading-tight">Profil &amp; Logo Sekolah</span>
             </button>
 
             <div className="text-slate-400 font-mono text-[10px] tracking-widest px-2 mt-4 mb-2 uppercase border-t border-slate-100 pt-4 font-bold">Penjadwalan</div>
@@ -1961,6 +1971,15 @@ export default function AdministrativeDashboard() {
               onUpdateBatasJamHari={handleUpdateBatasJamHari}
               loadDatabase={loadDatabase}
               setLogMessages={setLogMessages}
+            />
+          )}
+
+          {activeTab === 'school_profile' && (
+            <SchoolProfileTab
+              currentUser={currentUser}
+              setCurrentUser={setCurrentUser}
+              addLogMessage={(msg: string) => setLogMessages(prev => [msg, ...prev])}
+              onProfileUpdated={loadDatabase}
             />
           )}
 

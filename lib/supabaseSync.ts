@@ -113,14 +113,23 @@ export class SupabaseSyncService {
       // Sync School Profile
       const currentUserNow = LocalDB.getCurrentUser();
       const schoolName = currentUserNow?.nama_sekolah || 'SMAN 1 AI INDONESIA';
+      const localProfile = LocalDB.getSchoolProfile();
+      
       const { error: profileError } = await supabase.from('profiles').upsert({
         id: userId,
-        nama_sekolah: schoolName,
+        nama_sekolah: localProfile.nama_sekolah,
         is_pro: !!currentUserNow?.is_pro,
         serial_key: currentUserNow?.serial_key || null,
         activated_at: currentUserNow?.activated_at || null,
         role: currentUserNow?.role || 'user',
-        email: user.email || null
+        email: user.email || null,
+        logo_sekolah: localProfile.logo_sekolah,
+        nama_kepsek: localProfile.nama_kepsek,
+        nip_kepsek: localProfile.nip_kepsek,
+        nama_koordinator: localProfile.nama_koordinator,
+        nip_koordinator: localProfile.nip_koordinator,
+        kota_cetak: localProfile.kota,
+        tahun_ajaran: localProfile.tahun_ajaran
       });
       if (profileError) {
         console.error("Gagal sinkronisasi nama sekolah ke profiles:", profileError.message);
@@ -312,7 +321,7 @@ export class SupabaseSyncService {
       try {
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
-          .select('nama_sekolah, is_pro, serial_key, activated_at, role')
+          .select('nama_sekolah, is_pro, serial_key, activated_at, role, logo_sekolah, nama_kepsek, nip_kepsek, nama_koordinator, nip_koordinator, kota_cetak, tahun_ajaran')
           .maybeSingle();
         
         if (!profileError && profileData) {
@@ -330,6 +339,19 @@ export class SupabaseSyncService {
               parsedUser.role = profileData.role || 'user';
               localStorage.setItem('sch_current_user', JSON.stringify(parsedUser));
             }
+            
+            // Save complete school profile
+            const pulledProfile = {
+              nama_sekolah: schoolName,
+              logo_sekolah: profileData.logo_sekolah || null,
+              nama_kepsek: profileData.nama_kepsek || 'Drs. H. Mulyono, M.Pd.',
+              nip_kepsek: profileData.nip_kepsek || '19740815 200003 1 002',
+              nama_koordinator: profileData.nama_koordinator || 'Siti Aminah, S.Pd.',
+              nip_koordinator: profileData.nip_koordinator || '19810312 200801 2 015',
+              kota: profileData.kota_cetak || 'Jakarta',
+              tahun_ajaran: profileData.tahun_ajaran || 'Tahun Ajaran 2026/2027',
+            };
+            LocalDB.saveSchoolProfile(pulledProfile);
           }
         }
       } catch (err) {
