@@ -220,6 +220,52 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
               </div>
             </div>
           )}
+
+          {/* WhatsApp Purchase CTA */}
+          {!isPro && (
+            <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-6 shadow-xs space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="bg-emerald-500 text-white p-2.5 rounded-xl">
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.717-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.86-4.42 9.864-9.864.002-2.637-1.03-5.115-2.903-6.989-1.873-1.873-4.352-2.902-6.99-2.903-5.438 0-9.86 4.417-9.864 9.861-.001 1.777.464 3.513 1.348 5.044L1.815 21.75l5.068-1.32c1.55.845 3.238 1.286 4.894 1.286zm11.333-7.794c-.32-.16-1.89-.88-2.185-.987-.294-.107-.508-.16-.721.16-.213.32-.827.987-1.014 1.201-.187.213-.374.24-.694.08-.32-.16-1.352-.499-2.575-1.59-.95-.848-1.592-1.895-1.779-2.214-.187-.32-.02-.493.14-.653.144-.144.32-.374.48-.56.16-.188.213-.32.32-.534.107-.213.053-.4-.027-.56-.08-.16-.721-1.734-.987-2.375-.259-.624-.523-.54-.721-.55l-.614-.01c-.213 0-.56.08-.854.4-.294.32-1.121 1.095-1.121 2.67 0 1.575 1.148 3.1 1.308 3.313.16.213 2.259 3.45 5.474 4.84.764.33 1.36.527 1.824.674.767.244 1.467.21 2.02.127.618-.093 1.89-.773 2.158-1.48.267-.707.267-1.307.187-1.434-.08-.127-.294-.213-.614-.374z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900">Hubungi WhatsApp Resmi</h3>
+                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">Pesan Kode Serial Lisensi PRO secara mudah dan instan melalui nomor WhatsApp resmi kami.</p>
+                </div>
+              </div>
+
+              <div className="bg-white border border-emerald-100 rounded-xl p-4 space-y-2 shadow-xs">
+                <div className="text-[10px] text-emerald-700 font-extrabold uppercase tracking-wider font-mono">Draf Pesan Otomatis:</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg text-[11px] font-mono text-slate-600 leading-relaxed break-words whitespace-pre-wrap">
+{`Halo Admin Jadwalify 👋,
+
+Saya tertarik untuk membeli Lisensi PRO Resmi agar dapat menikmati fitur penuh Jadwalify.
+
+Berikut detail akun sekolah saya:
+• Username     : @${currentUser?.username || 'user'}
+• Nama Sekolah : ${currentUser?.nama_sekolah || '-'}
+
+Mohon informasi harga, prosedur pembayaran, serta pengiriman Kode Serial PRO. Terima kasih!`}
+                </div>
+              </div>
+
+              <a
+                href={`https://wa.me/6289522537711?text=${encodeURIComponent(
+                  `Halo Admin Jadwalify 👋,\n\nSaya tertarik untuk membeli Lisensi PRO Resmi agar dapat menikmati fitur penuh Jadwalify.\n\nBerikut detail akun sekolah saya:\n• Username     : @${currentUser?.username || 'user'}\n• Nama Sekolah : ${currentUser?.nama_sekolah || '-'}\n\nMohon informasi harga, prosedur pembayaran, serta pengiriman Kode Serial PRO. Terima kasih!`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition shadow-xs hover:shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm font-sans"
+              >
+                <svg className="w-4.5 h-4.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.717-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.86-4.42 9.864-9.864.002-2.637-1.03-5.115-2.903-6.989-1.873-1.873-4.352-2.902-6.99-2.903-5.438 0-9.86 4.417-9.864 9.861-.001 1.777.464 3.513 1.348 5.044L1.815 21.75l5.068-1.32c1.55.845 3.238 1.286 4.894 1.286zm11.333-7.794c-.32-.16-1.89-.88-2.185-.987-.294-.107-.508-.16-.721.16-.213.32-.827.987-1.014 1.201-.187.213-.374.24-.694.08-.32-.16-1.352-.499-2.575-1.59-.95-.848-1.592-1.895-1.779-2.214-.187-.32-.02-.493.14-.653.144-.144.32-.374.48-.56.16-.188.213-.32.32-.534.107-.213.053-.4-.027-.56-.08-.16-.721-1.734-.987-2.375-.259-.624-.523-.54-.721-.55l-.614-.01c-.213 0-.56.08-.854.4-.294.32-1.121 1.095-1.121 2.67 0 1.575 1.148 3.1 1.308 3.313.16.213 2.259 3.45 5.474 4.84.764.33 1.36.527 1.824.674.767.244 1.467.21 2.02.127.618-.093 1.89-.773 2.158-1.48.267-.707.267-1.307.187-1.434-.08-.127-.294-.213-.614-.374z" />
+                </svg>
+                <span>Beli Lisensi Resmi via WhatsApp</span>
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Right: Benefits & FAQ */}
@@ -268,7 +314,7 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
             <div className="space-y-3 text-[11px] font-semibold text-slate-600">
               <div className="border-b border-slate-50 pb-2.5">
                 <h4 className="font-bold text-slate-800 mb-0.5">Bagaimana cara mendapatkan Kode Serial?</h4>
-                <p className="text-slate-500 leading-relaxed">Anda dapat menghubungi administrator platform atau melakukan pembelian lisensi resmi melalui saluran distribusi resmi kami.</p>
+                <p className="text-slate-500 leading-relaxed">Anda dapat membelinya dengan menghubungi kami langsung melalui nomor WhatsApp resmi <strong>6289522537711</strong>. Kami siap memandu pembayaran dan mengirimkan Kode Serial PRO seketika.</p>
               </div>
               <div className="border-b border-slate-50 pb-2.5">
                 <h4 className="font-bold text-slate-800 mb-0.5">Apakah Lisensi PRO berlaku selamanya?</h4>
