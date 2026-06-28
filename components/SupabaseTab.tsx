@@ -292,6 +292,14 @@ export default function SupabaseTab({ setLogMessages }: SupabaseTabProps) {
                 </span>
               </div>
             </button>
+
+            <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100/60 text-[11px] text-indigo-900 leading-relaxed flex items-start gap-2 mt-2">
+              <Clock className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">✨ Sinkronisasi Otomatis Aktif</span>
+                Aplikasi ini dilengkapi **Auto-Save (Push)** instan dengan penundaan 1,2 detik setelah setiap pengeditan, serta **Auto-Pull (Latar Belakang)** setiap 30 detik untuk mendeteksi perubahan dari perangkat lain secara aman dan bebas konflik.
+              </div>
+            </div>
           </div>
         </div>
 

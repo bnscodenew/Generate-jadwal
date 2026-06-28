@@ -426,6 +426,41 @@ export class SupabaseSyncService {
         jam_ke: s.jam_ke
       }));
 
+      // Check if new data is different from current local database
+      const currentTeachers = LocalDB.getGuru();
+      const currentSubjects = LocalDB.getMapel();
+      const currentClasses = LocalDB.getKelas();
+      const currentRooms = LocalDB.getRuangan();
+      const currentPeriods = LocalDB.getJamPelajaran();
+      const currentPreferences = LocalDB.getPreferensi();
+      const currentAssignments = LocalDB.getPengampu();
+      const currentSchedules = LocalDB.getJadwal();
+
+      // Simple normalizer to prevent false-positives
+      const normalize = (val: any) => {
+        if (!val) return '';
+        return JSON.stringify(val, (k, v) => {
+          if (v === null || v === undefined) return '';
+          if (Array.isArray(v) && v.length === 0) return '';
+          return v;
+        });
+      };
+
+      const hasChanges = 
+        normalize(localTeachers) !== normalize(currentTeachers) ||
+        normalize(localSubjects) !== normalize(currentSubjects) ||
+        normalize(localClasses) !== normalize(currentClasses) ||
+        normalize(localRooms) !== normalize(currentRooms) ||
+        normalize(localPeriods) !== normalize(currentPeriods) ||
+        normalize(localPreferences) !== normalize(currentPreferences) ||
+        normalize(localAssignments) !== normalize(currentAssignments) ||
+        normalize(localSchedules) !== normalize(currentSchedules);
+
+      if (!hasChanges) {
+        logs.push('Data lokal sudah selaras sempurna dengan Supabase Cloud. Lewati penulisan ulang.');
+        return { success: true, message: 'Data sudah up-to-date.', logs };
+      }
+
       // Tulis ulang seluruh data ke LocalDB
       LocalDB.saveGuru(localTeachers);
       LocalDB.saveMapel(localSubjects);

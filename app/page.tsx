@@ -315,6 +315,52 @@ export default function AdministrativeDashboard() {
   const syncTimeoutRef = useRef<any>(null);
   const generatorWorkerRef = useRef<Worker | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [backgroundSyncStatus, setBackgroundSyncStatus] = useState<'idle' | 'checking' | 'success' | 'failed'>('idle');
+
+  // Efek Sinkronisasi Latar Belakang (Auto-Pull) periodik setiap 30 detik untuk sinkronisasi multi-device
+  useEffect(() => {
+    if (!isSupabaseModeActive() || !currentUser?.isGoogle) return;
+
+    // Set initial sync time
+    if (!lastSyncTime) {
+      setLastSyncTime(new Date());
+    }
+
+    const interval = setInterval(async () => {
+      // Hanya lakukan pull otomatis jika:
+      // 1. Tidak sedang melakukan proses push autosave (isCloudSyncing === false)
+      // 2. Tidak ada penundaan syncTimeoutRef (user tidak sedang mengetik atau aktif mengubah data)
+      if (!isCloudSyncing && !syncTimeoutRef.current) {
+        try {
+          setBackgroundSyncStatus('checking');
+          console.log("Background checking and syncing latest from Supabase cloud...");
+          
+          const res = await SupabaseSyncService.pullAll();
+          if (res.success) {
+            setLastSyncTime(new Date());
+            setBackgroundSyncStatus('success');
+            
+            // Muat ulang state React agar tersinkronisasi tanpa reload halaman
+            loadDatabase(true); // skipCloudSync = true agar tidak memicu push balik!
+            console.log("Background sync pull successful.");
+          } else {
+            setBackgroundSyncStatus('failed');
+            console.warn("Background sync pull warning:", res.message);
+          }
+        } catch (err) {
+          setBackgroundSyncStatus('failed');
+          console.error("Error in background auto-pull:", err);
+        } finally {
+          // Kembalikan ke idle setelah beberapa detik agar indikator kembali normal
+          setTimeout(() => setBackgroundSyncStatus('idle'), 3000);
+        }
+      }
+    }, 30000); // 30 detik sekali
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, isCloudSyncing]);
 
   // Terminate any running web worker on component unmount
   useEffect(() => {
@@ -1566,14 +1612,22 @@ export default function AdministrativeDashboard() {
               Jadwalify <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md font-bold font-sans">PRO</span>
               {isSupabaseModeActive() && (
                 isCloudSyncing ? (
-                  <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-md font-bold font-sans flex items-center gap-1.5 animate-pulse">
+                  <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-md font-bold font-sans flex items-center gap-1.5 animate-pulse" title="Sedang mengunggah perubahan otomatis ke Supabase Cloud">
                     <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
-                    Menyinkronkan...
+                    Menyimpan ke Cloud...
+                  </span>
+                ) : backgroundSyncStatus === 'checking' ? (
+                  <span className="text-[10px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-100 rounded-md font-bold font-sans flex items-center gap-1.5 animate-pulse" title="Sedang memeriksa pembaruan data di cloud">
+                    <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-ping" />
+                    Memeriksa Cloud...
                   </span>
                 ) : (
-                  <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-md font-bold font-sans flex items-center gap-1">
+                  <span 
+                    className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-md font-bold font-sans flex items-center gap-1 cursor-help" 
+                    title={lastSyncTime ? `Sinkron otomatis aktif. Terakhir diperiksa: ${lastSyncTime.toLocaleTimeString()}` : "Terhubung secara aman ke Supabase Cloud"}
+                  >
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                    Cloud Aktif
+                    Cloud Aktif {lastSyncTime && `• ${lastSyncTime.toLocaleTimeString()}`}
                   </span>
                 )
               )}
