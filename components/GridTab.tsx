@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Download, FileText, Info, Trash2, Calendar, Play, AlertTriangle, CheckCircle, HelpCircle, BarChart3, BookOpen, Users, Clock, Printer, X, Settings } from 'lucide-react';
 import { Guru, Kelas, MataPelajaran, Ruangan, JamPelajaran, Jadwal, Hari, KonflikJadwal, PengampuMataPelajaran } from '../lib/types';
 import { LocalDB } from '../lib/db';
+import { getInitialGuru } from '../lib/utils';
 
 interface GridTabProps {
   guru: Guru[];
@@ -58,6 +59,8 @@ export default function GridTab({
 }: GridTabProps) {
   // States untuk Cetak PDF kustom profesional
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [useTeacherCode, setUseTeacherCode] = useState(false);
+  const [printUseTeacherCode, setPrintUseTeacherCode] = useState(false);
   const [printSchoolName, setPrintSchoolName] = useState(() => {
     return LocalDB.getCurrentUser()?.nama_sekolah || 'SMA NEGERI 1 AI INDONESIA';
   });
@@ -66,7 +69,7 @@ export default function GridTab({
   const [printPrincipalNip, setPrintPrincipalNip] = useState('19740815 200003 1 002');
   const [printCoordinatorName, setPrintCoordinatorName] = useState('Siti Aminah, S.Pd.');
   const [printCoordinatorNip, setPrintCoordinatorNip] = useState('19810312 200801 2 015');
-  const [printScope, setPrintScope] = useState<'current' | 'all_classes' | 'all_teachers'>('current');
+  const [printScope, setPrintScope] = useState<'current' | 'all_classes' | 'all_teachers' | 'master_schedule'>('current');
   const [printDate, setPrintDate] = useState(() => {
     const today = new Date();
     const months = [
@@ -108,6 +111,64 @@ export default function GridTab({
     setTimeout(() => {
       window.print();
     }, 150);
+  };
+
+  const exportMasterScheduleExcel = () => {
+    const daysArr: Hari[] = hariAktif;
+    const classesArr = kelas;
+    
+    let csvContent = `\ufeffJADWAL INDUK KOLEKTIF - ${printSchoolName.toUpperCase()}\n`;
+    csvContent += `Tahun Ajaran: ${printAcademicYear}\n\n`;
+    csvContent += `Hari,Jam Ke,Waktu,${classesArr.map(c => `Kelas ${c.nama_kelas}`).join(',')}\n`;
+
+    for (const day of daysArr) {
+      for (const p of jamPelajaran) {
+        let row = `${day},${p.jam_ke},${p.jam_mulai} - ${p.jam_selesai}`;
+        for (const c of classesArr) {
+          const slots = jadwal.filter(s => s.hari === day && s.jam_ke === p.jam_ke && s.kelas_id === c.id);
+          if (slots.length > 0) {
+            const slotDetails = slots.map(sc => {
+              const m = mapel.find(sub => sub.id === sc.mapel_id);
+              const g = guru.find(tea => tea.id === sc.guru_id);
+              const mCode = m ? m.kode_mapel : 'Mapel';
+              const gCode = g ? getInitialGuru(g.nama) : 'Guru';
+              return `${mCode}/${gCode}`;
+            }).join(' | ');
+            row += `,"${slotDetails}"`;
+          } else {
+            row += `,"-"`;
+          }
+        }
+        csvContent += row + '\n';
+      }
+    }
+
+    // Append Legenda Guru
+    csvContent += `\n\nLEGENDA KODE GURU PENGAJAR\n`;
+    csvContent += `Kode,Nama Guru,NIP\n`;
+    for (const g of guru.filter(tea => tea.status_aktif)) {
+      csvContent += `"${getInitialGuru(g.nama)}","${g.nama}","${g.nip || '-'}"\n`;
+    }
+
+    // Append Legenda Mapel
+    csvContent += `\nLEGENDA KODE MATA PELAJARAN\n`;
+    csvContent += `Kode,Nama Mata Pelajaran\n`;
+    for (const m of mapel) {
+      csvContent += `"${m.kode_mapel}","${m.nama_mapel}"\n`;
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `jadwal_induk_kolektif_${printSchoolName.toLowerCase().replace(/\s+/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    if (addLogMessage) {
+      addLogMessage(`Jadwal Induk Kolektif berhasil diekspor ke Excel CSV.`);
+    }
   };
 
   // Helper to check what conflicts would occur if we swapped selected cell with (targetHari, targetJamKe)
@@ -575,6 +636,17 @@ export default function GridTab({
               <option key={r.id} value={r.id}>{r.nama_ruangan} (Kapasitas: {r.kapasitas})</option>
             ))}
           </select>
+
+          {/* Toggle Kode Guru */}
+          <label className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 border border-slate-200/50 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-100 select-none" title="Ubah tampilan guru pada grid menjadi inisial/kode singkat">
+            <input 
+              type="checkbox" 
+              checked={useTeacherCode} 
+              onChange={(e) => setUseTeacherCode(e.target.checked)} 
+              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <span className="font-bold text-[11px] text-slate-700">Gunakan Kode Guru (Inisial)</span>
+          </label>
         </div>
 
         <div className="flex items-center gap-2">
@@ -852,8 +924,8 @@ export default function GridTab({
                                   </div>
 
                                   {/* Teacher */}
-                                  <div className="text-[10px] text-indigo-600 leading-none font-bold">
-                                    👤 {mappedGuru ? mappedGuru.nama.split(',')[0] : 'Guru'}
+                                  <div className="text-[10px] text-indigo-600 leading-none font-bold" title={mappedGuru ? mappedGuru.nama : 'Guru'}>
+                                    👤 {mappedGuru ? (useTeacherCode ? getInitialGuru(mappedGuru.nama) : mappedGuru.nama.split(',')[0]) : 'Guru'}
                                   </div>
 
                                   {/* Extra metadata dependant on filters */}
@@ -1197,6 +1269,122 @@ export default function GridTab({
           );
         };
 
+        const renderMasterPrintTable = () => {
+          return (
+            <table className="print-table w-full border-collapse">
+              <thead>
+                <tr>
+                  <th style={{ width: '8%' }} className="border border-slate-600 bg-slate-100 p-1.5 text-[9px] font-bold text-slate-800 text-center">Hari</th>
+                  <th style={{ width: '10%' }} className="border border-slate-600 bg-slate-100 p-1.5 text-[9px] font-bold text-slate-800 text-center">Waktu</th>
+                  {kelas.map(c => (
+                    <th key={c.id} className="border border-slate-600 bg-slate-100 p-1.5 text-[9px] font-bold text-slate-800 text-center">
+                      Kelas {c.nama_kelas}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {hariAktif.map(day => {
+                  return jamPelajaran.map((p, pIdx) => {
+                    return (
+                      <tr key={`${day}-${p.id}`}>
+                        {pIdx === 0 && (
+                          <td 
+                            rowSpan={jamPelajaran.length} 
+                            className="border border-slate-400 bg-slate-50 font-extrabold text-center text-[10px] text-slate-900 align-middle"
+                            style={{ verticalAlign: 'middle' }}
+                          >
+                            {day.toUpperCase()}
+                          </td>
+                        )}
+                        <td className="border border-slate-400 p-1 text-center bg-slate-50/80">
+                          <div className="font-bold text-[9px] text-indigo-950">Ke-{p.jam_ke}</div>
+                          <div className="text-[7.5px] text-slate-500 font-mono">{p.jam_mulai}-{p.jam_selesai}</div>
+                        </td>
+                        {kelas.map(c => {
+                          const slots = jadwal.filter(s => s.hari === day && s.jam_ke === p.jam_ke && s.kelas_id === c.id);
+                          return (
+                            <td key={c.id} className="border border-slate-400 p-1 text-center align-middle text-[9px] h-9">
+                              {slots.length === 0 ? (
+                                <span className="text-slate-300">-</span>
+                              ) : (
+                                slots.map(sc => {
+                                  const m = mapel.find(sub => sub.id === sc.mapel_id);
+                                  const g = guru.find(tea => tea.id === sc.guru_id);
+                                  const r = ruangan.find(rm => rm.id === sc.ruangan_id);
+                                  const subjLabel = m ? m.kode_mapel : 'Mapel';
+                                  const teacherLabel = g ? getInitialGuru(g.nama) : 'Guru';
+                                  const roomLabel = r ? r.nama_ruangan.replace('Kelas ', '') : '';
+                                  
+                                  return (
+                                    <div key={sc.id} className="leading-tight">
+                                      <span className="font-extrabold text-slate-950">{subjLabel}</span>
+                                      <span className="text-slate-400 mx-0.5">/</span>
+                                      <span className="font-bold text-indigo-700">{teacherLabel}</span>
+                                      {roomLabel && (
+                                        <div className="text-[7px] text-slate-500 font-mono">📍{roomLabel}</div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  });
+                })}
+              </tbody>
+            </table>
+          );
+        };
+
+        const renderMasterScheduleLegend = () => {
+          return (
+            <div className="mt-4 pt-3 border-t border-slate-300 print:break-inside-avoid">
+              <h4 className="text-[9px] font-bold uppercase tracking-wider text-slate-800 mb-1.5">
+                LEGENDA KODE MATA PELAJARAN & GURU PENGAJAR
+              </h4>
+              <div className="grid grid-cols-2 gap-4 text-[8px] print:text-[7px] leading-relaxed">
+                {/* Guru Legend */}
+                <div>
+                  <span className="block font-bold text-slate-700 border-b border-slate-200 pb-0.5 mb-1 uppercase">KODE GURU PENGAJAR</span>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 max-h-[120px] overflow-y-auto">
+                    {guru.filter(g => g.status_aktif).map(g => (
+                      <div key={g.id} className="flex gap-1 items-center">
+                        <span className="font-mono font-bold text-indigo-700 bg-slate-100 px-1 rounded min-w-[20px] text-center">
+                          {getInitialGuru(g.nama)}
+                        </span>
+                        <span className="text-slate-800 truncate" title={g.nama}>
+                          {g.nama}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mapel Legend */}
+                <div>
+                  <span className="block font-bold text-slate-700 border-b border-slate-200 pb-0.5 mb-1 uppercase">KODE MATA PELAJARAN</span>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 max-h-[120px] overflow-y-auto">
+                    {mapel.map(m => (
+                      <div key={m.id} className="flex gap-1 items-center">
+                        <span className="font-mono font-bold text-emerald-700 bg-slate-100 px-1 rounded min-w-[26px] text-center">
+                          {m.kode_mapel}
+                        </span>
+                        <span className="text-slate-800 truncate" title={m.nama_mapel}>
+                          {m.nama_mapel}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
         const renderPrintFooter = () => {
           return (
             <div className="grid grid-cols-2 gap-8 text-[10px] pt-4 print:pt-1 font-sans leading-relaxed">
@@ -1320,6 +1508,18 @@ export default function GridTab({
                 );
               })}
 
+              {printScope === 'master_schedule' && (
+                <div className="space-y-6">
+                  {renderPrintPageHeader('JADWAL PELAJARAN INDUK (KOLEKTIF)', 'Seluruh Kelas')}
+                  
+                  {renderMasterPrintTable()}
+                  
+                  {renderMasterScheduleLegend()}
+                  
+                  {renderPrintFooter()}
+                </div>
+              )}
+
             </div>
           </>
         );
@@ -1357,7 +1557,7 @@ export default function GridTab({
               {/* Scope Selection */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                 <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wide">1. Pilih Lingkup Cetak (A4 Landscape)</span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <button
                     type="button"
                     onClick={() => setPrintScope('current')}
@@ -1399,6 +1599,19 @@ export default function GridTab({
                   >
                     <span className="text-xs font-bold block">Semua Guru Aktif</span>
                     <span className="text-[9px] text-slate-500 mt-1 leading-normal">Mencetak jadwal mengajar masing-masing guru aktif, tiap guru 1 lembar terpisah.</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrintScope('master_schedule')}
+                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
+                      printScope === 'master_schedule' 
+                        ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-100 text-indigo-950 font-semibold' 
+                        : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <span className="text-xs font-bold block">Jadwal Induk (Kolektif)</span>
+                    <span className="text-[9px] text-slate-500 mt-1 leading-normal">Mencetak seluruh kelas berdampingan dalam satu tabel padat (1 file/lembar) dengan kode guru.</span>
                   </button>
                 </div>
               </div>
@@ -1502,7 +1715,7 @@ export default function GridTab({
             </div>
 
             {/* Footer buttons */}
-            <div className="bg-slate-50 px-6 py-4 border-t border-slate-150 flex items-center justify-end gap-3 shrink-0">
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-150 flex flex-wrap items-center justify-end gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowPrintModal(false)}
@@ -1510,6 +1723,35 @@ export default function GridTab({
               >
                 Batal
               </button>
+              
+              {printScope === 'master_schedule' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    exportMasterScheduleExcel();
+                    setShowPrintModal(false);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold border border-emerald-700 rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md hover:shadow-lg"
+                  title="Unduh jadwal pelajaran induk seluruh kelas dalam bentuk Excel .csv"
+                >
+                  <Download className="w-4 h-4" />
+                  Ekspor Excel (Jadwal Induk)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleExportExcel();
+                    setShowPrintModal(false);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold border border-emerald-700 rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md hover:shadow-lg"
+                  title="Unduh jadwal tampilan saringan aktif dalam bentuk Excel .csv"
+                >
+                  <Download className="w-4 h-4" />
+                  Ekspor Excel (Tampilan Saringan)
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleExecutePrint}
