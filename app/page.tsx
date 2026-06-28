@@ -114,7 +114,8 @@ export default function AdministrativeDashboard() {
     isOpen: boolean;
     title: string;
     message: string;
-    type: 'reset_master' | 'clear_schedule' | 'logout';
+    type: 'reset_master' | 'clear_schedule' | 'logout' | 'delete_guru' | 'delete_mapel' | 'delete_kelas' | 'delete_ruangan' | 'delete_pengampu' | 'delete_schedule';
+    onConfirm?: () => void;
   } | null>(null);
 
   // Auth States
@@ -635,18 +636,29 @@ export default function AdministrativeDashboard() {
   };
 
   const handleDeleteGuru = (id: string) => {
-    if (confirm('Hapus guru ini? Seluruh data preferensi dan pengampu terkait akan ikut dihapus.')) {
-      const filteredGuru = guru.filter(g => g.id !== id);
-      const filteredAssignment = pengampu.filter(a => a.guru_id !== id);
-      const filteredPref = preferensi.filter(p => p.guru_id !== id);
-      const filteredSched = jadwal.filter(s => s.guru_id !== id);
-      
-      LocalDB.saveGuru(filteredGuru);
-      LocalDB.savePengampu(filteredAssignment);
-      LocalDB.savePreferensi(filteredPref);
-      LocalDB.saveJadwal(filteredSched);
-      loadDatabase();
-    }
+    const target = guru.find(g => g.id === id);
+    const targetName = target ? target.nama : 'Guru';
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hapus Data Guru',
+      message: `Apakah Anda yakin ingin menghapus guru "${targetName}"? Seluruh data preferensi, tugas pengampu, dan jadwal terkait akan ikut dihapus secara permanen dari sistem.`,
+      type: 'delete_guru',
+      onConfirm: () => {
+        const filteredGuru = guru.filter(g => g.id !== id);
+        const filteredAssignment = pengampu.filter(a => a.guru_id !== id);
+        const filteredPref = preferensi.filter(p => p.guru_id !== id);
+        const filteredSched = jadwal.filter(s => s.guru_id !== id);
+        
+        LocalDB.saveGuru(filteredGuru);
+        LocalDB.savePengampu(filteredAssignment);
+        LocalDB.savePreferensi(filteredPref);
+        LocalDB.saveJadwal(filteredSched);
+        loadDatabase();
+        setLogMessages(prev => [`Data guru "${targetName}" beserta relasi terkait berhasil dihapus.`, ...prev]);
+        setSelectedCell(null);
+        setConfirmModal(null);
+      }
+    });
   };
 
   const handleUpdateGuru = (updatedGuru: Guru) => {
@@ -675,12 +687,23 @@ export default function AdministrativeDashboard() {
   };
 
   const handleDeleteMapel = (id: string) => {
-    if (confirm('Hapus mata pelajaran ini? Pengampu dan jadwal terkait akan dihapus.')) {
-      LocalDB.saveMapel(mapel.filter(m => m.id !== id));
-      LocalDB.savePengampu(pengampu.filter(a => a.mapel_id !== id));
-      LocalDB.saveJadwal(jadwal.filter(s => s.mapel_id !== id));
-      loadDatabase();
-    }
+    const target = mapel.find(m => m.id !== id);
+    const targetName = target ? target.nama_mapel : 'Mata Pelajaran';
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hapus Mata Pelajaran',
+      message: `Apakah Anda yakin ingin menghapus mata pelajaran "${targetName}"? Pengampu dan slot jadwal pelajaran terkait akan dilepaskan secara permanen.`,
+      type: 'delete_mapel',
+      onConfirm: () => {
+        LocalDB.saveMapel(mapel.filter(m => m.id !== id));
+        LocalDB.savePengampu(pengampu.filter(a => a.mapel_id !== id));
+        LocalDB.saveJadwal(jadwal.filter(s => s.mapel_id !== id));
+        loadDatabase();
+        setLogMessages(prev => [`Mata pelajaran "${targetName}" beserta relasi jadwal berhasil dihapus.`, ...prev]);
+        setSelectedCell(null);
+        setConfirmModal(null);
+      }
+    });
   };
 
   // --- CRUD KELAS & RUANGAN ---
@@ -702,12 +725,23 @@ export default function AdministrativeDashboard() {
   };
 
   const handleDeleteKelas = (id: string) => {
-    if (confirm('Hapus kelas ini?')) {
-      LocalDB.saveKelas(kelas.filter(c => c.id !== id));
-      LocalDB.savePengampu(pengampu.filter(a => a.kelas_id !== id));
-      LocalDB.saveJadwal(jadwal.filter(s => s.kelas_id !== id));
-      loadDatabase();
-    }
+    const target = kelas.find(c => c.id === id);
+    const targetName = target ? target.nama_kelas : 'Kelas';
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hapus Data Kelas',
+      message: `Apakah Anda yakin ingin menghapus kelas "${targetName}"? Pengampu dan rancangan jadwal untuk kelas ini akan ikut dihapus.`,
+      type: 'delete_kelas',
+      onConfirm: () => {
+        LocalDB.saveKelas(kelas.filter(c => c.id !== id));
+        LocalDB.savePengampu(pengampu.filter(a => a.kelas_id !== id));
+        LocalDB.saveJadwal(jadwal.filter(s => s.kelas_id !== id));
+        loadDatabase();
+        setLogMessages(prev => [`Data kelas "${targetName}" berhasil dihapus dari sistem.`, ...prev]);
+        setSelectedCell(null);
+        setConfirmModal(null);
+      }
+    });
   };
 
   const handleAddRuangan = (e: React.FormEvent) => {
@@ -727,11 +761,22 @@ export default function AdministrativeDashboard() {
   };
 
   const handleDeleteRuangan = (id: string) => {
-    if (confirm('Hapus ruangan ini?')) {
-      LocalDB.saveRuangan(ruangan.filter(r => r.id !== id));
-      LocalDB.saveJadwal(jadwal.filter(s => s.ruangan_id !== id));
-      loadDatabase();
-    }
+    const target = ruangan.find(r => r.id === id);
+    const targetName = target ? target.nama_ruangan : 'Ruangan';
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hapus Data Ruangan',
+      message: `Apakah Anda yakin ingin menghapus ruangan "${targetName}"? Alokasi ruangan pada jadwal akan dibersihkan.`,
+      type: 'delete_ruangan',
+      onConfirm: () => {
+        LocalDB.saveRuangan(ruangan.filter(r => r.id !== id));
+        LocalDB.saveJadwal(jadwal.filter(s => s.ruangan_id !== id));
+        loadDatabase();
+        setLogMessages(prev => [`Data ruangan "${targetName}" berhasil dihapus.`, ...prev]);
+        setSelectedCell(null);
+        setConfirmModal(null);
+      }
+    });
   };
 
   // --- CRUD ASSIGNMENTS (PENGAMPU) ---
@@ -754,11 +799,25 @@ export default function AdministrativeDashboard() {
   };
 
   const handleDeletePengampu = (id: string) => {
-    if (confirm('Hapus data pengampu ini? Sektor jadwal terkait juga akan dilepaskan.')) {
-      LocalDB.savePengampu(pengampu.filter(a => a.id !== id));
-      LocalDB.saveJadwal(jadwal.filter(s => s.assignment_id !== id));
-      loadDatabase();
-    }
+    const target = pengampu.find(a => a.id === id);
+    const guruTarget = target ? guru.find(g => g.id === target.guru_id) : null;
+    const mapelTarget = target ? mapel.find(m => m.id === target.mapel_id) : null;
+    const desc = (guruTarget && mapelTarget) ? `${guruTarget.nama} - ${mapelTarget.nama_mapel}` : 'Tugas Pengampu';
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hapus Tugas Mengajar (Pengampu)',
+      message: `Apakah Anda yakin ingin menghapus tugas mengajar "${desc}"? Slot jadwal terkait akan otomatis dikosongkan.`,
+      type: 'delete_pengampu',
+      onConfirm: () => {
+        LocalDB.savePengampu(pengampu.filter(a => a.id !== id));
+        LocalDB.saveJadwal(jadwal.filter(s => s.assignment_id !== id));
+        loadDatabase();
+        setLogMessages(prev => [`Tugas mengajar "${desc}" berhasil dihapus.`, ...prev]);
+        setSelectedCell(null);
+        setConfirmModal(null);
+      }
+    });
   };
 
   // --- PREFERENCES SAVE CALLBACK ---
@@ -1015,12 +1074,32 @@ export default function AdministrativeDashboard() {
   };
 
   const handleManualDeleteSlot = (scheduleId: string, skipConfirm = false) => {
-    if (skipConfirm || confirm('Apakah Anda yakin ingin melepas slot jadwal ini saja?')) {
+    const executeDelete = () => {
       const updated = jadwal.filter(s => s.id !== scheduleId);
       LocalDB.saveJadwal(updated);
       loadDatabase();
       setSelectedCell(null);
       setLogMessages(prev => [`Satu slot pelajaran berhasil dilepaskan secara manual dari rancangan jadwal.`, ...prev]);
+    };
+
+    if (skipConfirm) {
+      executeDelete();
+    } else {
+      const slot = jadwal.find(s => s.id === scheduleId);
+      const m = slot ? mapel.find(map => map.id === slot.mapel_id) : null;
+      const g = slot ? guru.find(gur => gur.id === slot.guru_id) : null;
+      const info = (m && g) ? `mata pelajaran "${m.nama_mapel}" oleh "${g.nama}"` : "pelajaran ini";
+
+      setConfirmModal({
+        isOpen: true,
+        title: 'Lepaskan Slot Jadwal',
+        message: `Apakah Anda yakin ingin mengosongkan/melepaskan slot ${info}? Slot ini akan kosong kembali.`,
+        type: 'delete_schedule',
+        onConfirm: () => {
+          executeDelete();
+          setConfirmModal(null);
+        }
+      });
     }
   };
 
@@ -1893,6 +1972,28 @@ export default function AdministrativeDashboard() {
                   className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-200"
                 >
                   <LogOut className="w-3.5 h-3.5" /> Ya, Keluar Sesi
+                </button>
+              </div>
+            )}
+
+            {/* Actions for Generic Deletions */}
+            {confirmModal.type !== 'reset_master' && confirmModal.type !== 'clear_schedule' && confirmModal.type !== 'logout' && confirmModal.onConfirm && (
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button 
+                  type="button"
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-750 font-bold rounded-lg transition cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    if (confirmModal.onConfirm) confirmModal.onConfirm();
+                  }}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-200"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Ya, Hapus Data
                 </button>
               </div>
             )}
