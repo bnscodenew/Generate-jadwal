@@ -339,12 +339,7 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
             </div>
           </div>
           <div className="bg-slate-900 text-slate-100 rounded-xl p-3 font-mono text-[10px] whitespace-pre-wrap overflow-x-auto relative group max-h-40">
-            {`CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
-RETURNS TEXT AS $$
-  SELECT role FROM public.profiles WHERE id = $1;
-$$ LANGUAGE sql SECURITY DEFINER;
-
-CREATE TABLE IF NOT EXISTS public.serial_keys (
+            {`CREATE TABLE IF NOT EXISTS public.serial_keys (
     key VARCHAR(50) PRIMARY KEY,
     is_used BOOLEAN DEFAULT false,
     used_by VARCHAR(255),
@@ -357,11 +352,9 @@ ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
 
 -- Kebijakan Akses
 CREATE POLICY "Admin full access" ON public.serial_keys TO authenticated USING (
-    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
 ) WITH CHECK (
-    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
 );
 
 CREATE POLICY "Users read key" ON public.serial_keys FOR SELECT TO authenticated USING (true);
@@ -370,12 +363,7 @@ CREATE POLICY "Users update key" ON public.serial_keys FOR UPDATE TO authenticat
           <button
             onClick={() => {
               if (typeof navigator !== 'undefined') {
-                navigator.clipboard.writeText(`CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
-RETURNS TEXT AS $$
-  SELECT role FROM public.profiles WHERE id = $1;
-$$ LANGUAGE sql SECURITY DEFINER;
-
-CREATE TABLE IF NOT EXISTS public.serial_keys (
+                navigator.clipboard.writeText(`CREATE TABLE IF NOT EXISTS public.serial_keys (
     key VARCHAR(50) PRIMARY KEY,
     is_used BOOLEAN DEFAULT false,
     used_by VARCHAR(255),
@@ -386,11 +374,9 @@ CREATE TABLE IF NOT EXISTS public.serial_keys (
 ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Admin full access" ON public.serial_keys TO authenticated USING (
-    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
 ) WITH CHECK (
-    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
-    public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
 );
 
 CREATE POLICY "Users read key" ON public.serial_keys FOR SELECT TO authenticated USING (true);

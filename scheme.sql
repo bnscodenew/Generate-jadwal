@@ -43,13 +43,7 @@ $$ LANGUAGE sql SECURITY DEFINER;
 -- Kebijakan Keamanan (Policies) untuk profiles
 CREATE POLICY "Pengguna dapat membaca profil mereka sendiri atau admin membaca semua" 
     ON public.profiles FOR SELECT 
-    USING (
-        auth.uid() = id 
-        OR 
-        (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
-        OR
-        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
-    );
+    USING (true);
 
 CREATE POLICY "Pengguna dapat memperbarui profil sendiri atau admin memperbarui semua" 
     ON public.profiles FOR UPDATE 
@@ -57,20 +51,25 @@ CREATE POLICY "Pengguna dapat memperbarui profil sendiri atau admin memperbarui 
         auth.uid() = id 
         OR 
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
-        OR
-        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
+    )
+    WITH CHECK (
+        auth.uid() = id 
+        OR 
+        (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
     );
 
 CREATE POLICY "Pengguna dapat memasukkan data profil baru saat register" 
     ON public.profiles FOR INSERT 
-    WITH CHECK (auth.uid() = id);
+    WITH CHECK (
+        auth.uid() = id
+        OR
+        (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
+    );
 
 CREATE POLICY "Admin dapat menghapus profil" 
     ON public.profiles FOR DELETE 
     USING (
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
-        OR
-        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     );
 
 
@@ -95,13 +94,9 @@ CREATE POLICY "Admin has full access to serial_keys"
     TO authenticated
     USING (
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
-        OR
-        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     )
     WITH CHECK (
         (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
-        OR
-        public.get_user_role(auth.uid()) IN ('admin', 'Administrator')
     );
 
 CREATE POLICY "Users can read serial_keys to validate"
