@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     is_pro BOOLEAN DEFAULT false,
     serial_key VARCHAR(50),
     activated_at TIMESTAMP WITH TIME ZONE,
+    role VARCHAR(50) DEFAULT 'user',
+    email VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -262,13 +264,15 @@ CREATE INDEX IF NOT EXISTS idx_teaching_assignments_composite_v2 ON public.teach
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, nama_sekolah, is_pro, serial_key, activated_at)
+  INSERT INTO public.profiles (id, nama_sekolah, is_pro, serial_key, activated_at, role, email)
   VALUES (
     new.id,
     COALESCE(new.raw_user_meta_data->>'nama_sekolah', 'Nama Sekolah Baru'),
     COALESCE((new.raw_user_meta_data->>'is_pro')::boolean, false),
     new.raw_user_meta_data->>'serial_key',
-    CASE WHEN new.raw_user_meta_data->>'activated_at' IS NOT NULL THEN (new.raw_user_meta_data->>'activated_at')::timestamp with time zone ELSE NULL END
+    CASE WHEN new.raw_user_meta_data->>'activated_at' IS NOT NULL THEN (new.raw_user_meta_data->>'activated_at')::timestamp with time zone ELSE NULL END,
+    COALESCE(new.raw_user_meta_data->>'role', 'user'),
+    new.email
   );
   RETURN NEW;
 END;

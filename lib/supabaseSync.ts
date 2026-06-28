@@ -118,7 +118,9 @@ export class SupabaseSyncService {
         nama_sekolah: schoolName,
         is_pro: !!currentUserNow?.is_pro,
         serial_key: currentUserNow?.serial_key || null,
-        activated_at: currentUserNow?.activated_at || null
+        activated_at: currentUserNow?.activated_at || null,
+        role: currentUserNow?.role || 'user',
+        email: user.email || null
       });
       if (profileError) {
         console.error("Gagal sinkronisasi nama sekolah ke profiles:", profileError.message);
@@ -310,7 +312,7 @@ export class SupabaseSyncService {
       try {
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
-          .select('nama_sekolah, is_pro, serial_key, activated_at')
+          .select('nama_sekolah, is_pro, serial_key, activated_at, role')
           .maybeSingle();
         
         if (!profileError && profileData) {
@@ -325,6 +327,7 @@ export class SupabaseSyncService {
               parsedUser.is_pro = !!profileData.is_pro;
               parsedUser.serial_key = profileData.serial_key || null;
               parsedUser.activated_at = profileData.activated_at || null;
+              parsedUser.role = profileData.role || 'user';
               localStorage.setItem('sch_current_user', JSON.stringify(parsedUser));
             }
           }

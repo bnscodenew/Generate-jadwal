@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Users, Key, Plus, Copy, Check, Trash2, ToggleLeft, ToggleRight, TrendingUp, BarChart2, CheckCircle, Search } from 'lucide-react';
+import { ShieldAlert, Users, Key, Plus, Copy, Check, Trash2, ToggleLeft, ToggleRight, TrendingUp, BarChart2, CheckCircle, Search, HelpCircle } from 'lucide-react';
 import { LocalDB } from '../lib/db';
+import { getSupabaseClient, isSupabaseModeActive } from '../lib/supabaseClient';
 
 interface AdminTabProps {
   currentUser: any;
@@ -10,22 +11,60 @@ interface AdminTabProps {
 }
 
 export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps) {
-  const [users, setUsers] = useState<any[]>(() => {
-    return typeof window !== 'undefined' ? LocalDB.getUsers() : [];
-  });
-  const [serialKeys, setSerialKeys] = useState<any[]>(() => {
-    return typeof window !== 'undefined' ? LocalDB.getSerialKeys() : [];
-  });
+  const [users, setUsers] = useState<any[]>([]);
+  const [serialKeys, setSerialKeys] = useState<any[]>([]);
   const [genQuantity, setGenQuantity] = useState(3);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [keyFilter, setKeyFilter] = useState<'all' | 'available' | 'used'>('all');
 
-  // Load data from LocalDB
-  const loadAdminData = () => {
-    setUsers(LocalDB.getUsers());
+  // Load data from LocalDB or Supabase
+  const loadAdminData = async () => {
+    if (isSupabaseModeActive()) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          const { data: profiles, error } = await supabase
+            .from('profiles')
+            .select('*');
+          if (!error && profiles) {
+            // Map Supabase profile data to user format expected by AdminTab
+            const mapped = profiles.map((p: any) => ({
+              username: p.id, // Supabase UUID
+              email: p.email || '',
+              nama_sekolah: p.nama_sekolah,
+              is_pro: p.is_pro,
+              serial_key: p.serial_key,
+              activated_at: p.activated_at,
+              role: p.role || 'user',
+              isGoogle: true
+            }));
+            setUsers(mapped);
+          } else {
+            console.error("Gagal load profile dari Supabase:", error);
+            // Fallback ke local
+            setUsers(LocalDB.getUsers());
+          }
+        } catch (err) {
+          console.error("Gagal mengambil daftar pengguna dari Supabase:", err);
+          setUsers(LocalDB.getUsers());
+        }
+      } else {
+        setUsers(LocalDB.getUsers());
+      }
+    } else {
+      setUsers(LocalDB.getUsers());
+    }
     setSerialKeys(LocalDB.getSerialKeys());
   };
+
+  useEffect(() => {
+    // Jalankan asinkron untuk mencegah warning ESLint set-state-in-effect
+    const timer = setTimeout(() => {
+      loadAdminData();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleGenerateKeys = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,45 +86,98 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
     }
   };
 
-  const handleToggleUserPro = (username: string, currentIsPro: boolean) => {
-    const success = LocalDB.updateUserProStatus(username, !currentIsPro);
-    if (success) {
-      loadAdminData();
-      setLogMessages(prev => [
-        `Admin memperbarui status @${username} secara manual menjadi ${!currentIsPro ? 'PRO' : 'TRIAL'}.`,
-        ...prev
-      ]);
+  const handleToggleUserPro = async (username: string, currentIsPro: boolean) => {
+    if (isSupabaseModeActive()) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          const nextIsPro = !currentIsPro;
+          const { error } = await supabase
+            .from('profiles')
+            .update({
+              is_pro: nextIsPro,
+              serial_key: nextIsPro ? 'CLOUD-ACTIVATED' : null,
+              activated_at: nextIsPro ? new Date().toISOString() : null
+            })
+            .eq('id', username);
+          
+          if (!error) {
+            setLogMessages(prev => [
+              `Admin memperbarui status PRO akun di Supabase (ID: ${username}) menjadi ${nextIsPro ? 'PRO' : 'TRIAL'}.`,
+              ...prev
+            ]);
+            loadAdminData();
+          } else {
+            alert(`Gagal memperbarui status di Supabase: ${error.message}`);
+          }
+        } catch (err: any) {
+          alert(`Error: ${err.message}`);
+        }
+      }
+    } else {
+      const success = LocalDB.updateUserProStatus(username, !currentIsPro);
+      if (success) {
+        loadAdminData();
+        setLogMessages(prev => [
+          `Admin memperbarui status @${username} secara manual menjadi ${!currentIsPro ? 'PRO' : 'TRIAL'}.`,
+          ...prev
+        ]);
+      }
     }
   };
 
-  const handleDeleteUser = (username: string) => {
+  const handleDeleteUser = async (username: string) => {
     if (username.toLowerCase() === 'admin') {
       alert('Tidak dapat menghapus super-admin default.');
       return;
     }
     
-    const confirmDelete = window.confirm(`Apakah Anda yakin ingin menghapus akun @${username}? Semua data lokal miliknya akan hilang.`);
+    const confirmDelete = window.confirm(`Apakah Anda yakin ingin menghapus akun pengguna? Semua data miliknya akan hilang.`);
     if (!confirmDelete) return;
 
-    const allUsers = LocalDB.getUsers();
-    const filteredUsers = allUsers.filter(u => u.username.toLowerCase() !== username.toLowerCase());
-    LocalDB.saveUsers(filteredUsers);
-    
-    // Also clean up any keys associated
-    const userKeys = LocalDB.getSerialKeys();
-    const updatedKeys = userKeys.map(k => {
-      if (k.used_by?.toLowerCase() === username.toLowerCase()) {
-        return { ...k, is_used: false, used_by: null, activated_at: null };
+    if (isSupabaseModeActive()) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          const { error } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', username);
+          
+          if (!error) {
+            setLogMessages(prev => [
+              `Admin menghapus data profil pengguna (ID: ${username}) dari database Supabase.`,
+              ...prev
+            ]);
+            loadAdminData();
+          } else {
+            alert(`Gagal menghapus pengguna dari Supabase: ${error.message}`);
+          }
+        } catch (err: any) {
+          alert(`Error: ${err.message}`);
+        }
       }
-      return k;
-    });
-    LocalDB.saveSerialKeys(updatedKeys);
+    } else {
+      const allUsers = LocalDB.getUsers();
+      const filteredUsers = allUsers.filter(u => u.username.toLowerCase() !== username.toLowerCase());
+      LocalDB.saveUsers(filteredUsers);
+      
+      // Also clean up any keys associated
+      const userKeys = LocalDB.getSerialKeys();
+      const updatedKeys = userKeys.map(k => {
+        if (k.used_by?.toLowerCase() === username.toLowerCase()) {
+          return { ...k, is_used: false, used_by: null, activated_at: null };
+        }
+        return k;
+      });
+      LocalDB.saveSerialKeys(updatedKeys);
 
-    loadAdminData();
-    setLogMessages(prev => [
-      `Admin menghapus akun pengguna @${username} dari database platform.`,
-      ...prev
-    ]);
+      loadAdminData();
+      setLogMessages(prev => [
+        `Admin menghapus akun pengguna @${username} dari database platform.`,
+        ...prev
+      ]);
+    }
   };
 
   // Metrics calculations
@@ -107,6 +199,7 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
   // Filter users by search term
   const filteredUsers = users.filter(u => 
     u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (u.nama_sekolah && u.nama_sekolah.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -218,7 +311,14 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
                   filteredUsers.map(u => (
                     <tr key={u.username} className="hover:bg-slate-50/40">
                       <td className="py-3 px-3">
-                        <div className="font-extrabold text-slate-800">@{u.username}</div>
+                        <div className="font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                          <span>{u.email ? u.email : `@${u.username}`}</span>
+                          {(u.role === 'admin' || u.role === 'Administrator') && (
+                            <span className="text-[8px] px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 font-extrabold uppercase">
+                              Admin
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-slate-400 font-medium max-w-[200px] truncate" title={u.nama_sekolah}>
                           {u.nama_sekolah || 'Nama sekolah tidak diset'}
                         </div>
@@ -258,7 +358,7 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
                           <button
                             onClick={() => handleDeleteUser(u.username)}
                             className="p-1 transition text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md cursor-pointer"
-                            disabled={u.username.toLowerCase() === 'admin'}
+                            disabled={u.username.toLowerCase() === 'admin' || u.role === 'admin' || u.role === 'Administrator' || u.email?.toLowerCase() === 'balkhi05@gmail.com'}
                             title="Hapus Akun Pengguna"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

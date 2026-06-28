@@ -123,6 +123,10 @@ export default function AdministrativeDashboard() {
 
   // Auth States
   const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const isAdmin = currentUser?.username?.toLowerCase() === 'admin' || 
+                  currentUser?.role?.toLowerCase() === 'admin' || 
+                  currentUser?.role?.toLowerCase() === 'administrator' ||
+                  currentUser?.username?.toLowerCase() === 'balkhi05@gmail.com';
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authUsername, setAuthUsername] = useState<string>('');
   const [authPassword, setAuthPassword] = useState<string>('');
@@ -154,22 +158,49 @@ export default function AdministrativeDashboard() {
 
       if (session?.user) {
         const sbUser = session.user;
-        const schoolName = sbUser.user_metadata?.school_name || sbUser.user_metadata?.nama_sekolah || 'SMAN 1 AI INDONESIA';
+        
+        // Ambil profil sekolah dan status PRO serta role dari table profiles Supabase
+        let dbProfile = null;
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('nama_sekolah, is_pro, serial_key, activated_at, role')
+            .eq('id', sbUser.id)
+            .maybeSingle();
+          if (!error && data) {
+            dbProfile = data;
+          }
+        } catch (dbErr) {
+          console.error("Gagal membaca profiles dari Supabase:", dbErr);
+        }
+
+        const isPro = dbProfile ? !!dbProfile.is_pro : false;
+        const serialKey = dbProfile ? dbProfile.serial_key : null;
+        const activatedAt = dbProfile ? dbProfile.activated_at : null;
+        const schoolName = dbProfile?.nama_sekolah || sbUser.user_metadata?.school_name || sbUser.user_metadata?.nama_sekolah || 'SMAN 1 AI INDONESIA';
+        const userRole = dbProfile?.role || (sbUser.email?.toLowerCase() === 'balkhi05@gmail.com' ? 'admin' : 'user');
         
         // Mapped user in format LocalDB expects
         const mappedUser = {
           username: sbUser.email || sbUser.id,
           password: '', // Google auth / Supabase auth
           nama_sekolah: schoolName,
-          role: 'Administrator',
+          role: userRole,
           isGoogle: true,
+          is_pro: isPro,
+          serial_key: serialKey,
+          activated_at: activatedAt,
           displayName: sbUser.user_metadata?.full_name || sbUser.user_metadata?.displayName || sbUser.email?.split('@')[0] || 'User'
         };
 
         // Save to users list locally if not present
         const users = LocalDB.getUsers();
-        if (!users.some(u => u.username.toLowerCase() === mappedUser.username.toLowerCase())) {
+        const userIdx = users.findIndex(u => u.username.toLowerCase() === mappedUser.username.toLowerCase());
+        if (userIdx === -1) {
           users.push(mappedUser);
+          LocalDB.saveUsers(users);
+        } else {
+          users[userIdx] = { ...users[userIdx], ...mappedUser };
           LocalDB.saveUsers(users);
         }
 
@@ -1394,14 +1425,7 @@ export default function AdministrativeDashboard() {
                 </button>
               </form>
 
-              {authMode === 'login' && (
-                <div className="mt-6 p-3.5 bg-slate-50 rounded-xl border border-slate-100 text-center">
-                  <span className="text-[11px] text-slate-500 font-medium block">Akun Demo Instan:</span>
-                  <span className="font-mono text-[11px] text-slate-600 mt-1 block font-bold">
-                    Username: <span className="text-indigo-600 font-bold">admin</span> • Password: <span className="text-indigo-600 font-bold">password123</span>
-                  </span>
-                </div>
-              )}
+
               
               <div className="mt-6 text-center border-t border-slate-100 pt-4">
                 <span className="text-[11px] text-slate-400 font-medium">
@@ -1766,7 +1790,7 @@ export default function AdministrativeDashboard() {
               <span className="text-left leading-tight">Aktivasi Lisensi PRO</span>
             </button>
 
-            {currentUser?.username?.toLowerCase() === 'admin' && (
+            {isAdmin && (
               <button 
                 onClick={() => handleSetActiveTab('admin')} 
                 className={`flex items-start gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all font-semibold cursor-pointer ${activeTab === 'admin' ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
@@ -1956,7 +1980,7 @@ export default function AdministrativeDashboard() {
             />
           )}
 
-          {activeTab === 'admin' && currentUser?.username?.toLowerCase() === 'admin' && (
+          {activeTab === 'admin' && isAdmin && (
             <AdminTab
               currentUser={currentUser}
               setLogMessages={setLogMessages}
