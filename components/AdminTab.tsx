@@ -17,9 +17,13 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [keyFilter, setKeyFilter] = useState<'all' | 'available' | 'used'>('all');
+  const [dbHasSerialKeysTable, setDbHasSerialKeysTable] = useState(true);
 
   // Load data from LocalDB or Supabase
   const loadAdminData = async () => {
+    let supabaseProfilesLoaded = false;
+    let supabaseKeysLoaded = false;
+
     if (isSupabaseModeActive()) {
       const supabase = getSupabaseClient();
       if (supabase) {
@@ -40,22 +44,43 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
               isGoogle: true
             }));
             setUsers(mapped);
+            supabaseProfilesLoaded = true;
           } else {
             console.error("Gagal load profile dari Supabase:", error);
-            // Fallback ke local
-            setUsers(LocalDB.getUsers());
           }
         } catch (err) {
           console.error("Gagal mengambil daftar pengguna dari Supabase:", err);
-          setUsers(LocalDB.getUsers());
         }
-      } else {
-        setUsers(LocalDB.getUsers());
+
+        // Ambil daftar serial keys dari Supabase
+        try {
+          const { data: keys, error: keysError } = await supabase
+            .from('serial_keys')
+            .select('*');
+          
+          if (!keysError && keys) {
+            setSerialKeys(keys);
+            setDbHasSerialKeysTable(true);
+            supabaseKeysLoaded = true;
+          } else {
+            console.warn("Table serial_keys tidak ditemukan atau error:", keysError);
+            if (keysError?.code === 'PGRST116' || keysError?.message?.includes('does not exist')) {
+              setDbHasSerialKeysTable(false);
+            }
+          }
+        } catch (err) {
+          console.error("Gagal mengambil daftar serial key dari Supabase:", err);
+          setDbHasSerialKeysTable(false);
+        }
       }
-    } else {
+    }
+
+    if (!supabaseProfilesLoaded) {
       setUsers(LocalDB.getUsers());
     }
-    setSerialKeys(LocalDB.getSerialKeys());
+    if (!supabaseKeysLoaded) {
+      setSerialKeys(LocalDB.getSerialKeys());
+    }
   };
 
   useEffect(() => {
@@ -66,14 +91,58 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
     return () => clearTimeout(timer);
   }, []);
 
-  const handleGenerateKeys = (e: React.FormEvent) => {
+  const handleGenerateKeys = async (e: React.FormEvent) => {
     e.preventDefault();
     if (genQuantity < 1 || genQuantity > 20) return;
 
+    if (isSupabaseModeActive() && dbHasSerialKeysTable) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          const generatedList: any[] = [];
+          for (let i = 0; i < genQuantity; i++) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let part1 = '';
+            let part2 = '';
+            for (let j = 0; j < 4; j++) {
+              part1 += chars.charAt(Math.floor(Math.random() * chars.length));
+              part2 += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            const newKey = `JADW-PRO-${part1}-${part2}`;
+            generatedList.push({
+              key: newKey,
+              is_used: false,
+              used_by: null,
+              created_at: new Date().toISOString(),
+              activated_at: null
+            });
+          }
+
+          const { error } = await supabase
+            .from('serial_keys')
+            .insert(generatedList);
+
+          if (!error) {
+            setLogMessages(prev => [
+              `Admin berhasil menghasilkan ${genQuantity} Kode Serial baru secara massal ke Supabase Cloud.`,
+              ...prev
+            ]);
+            loadAdminData();
+          } else {
+            alert(`Gagal menyimpan serial key ke Supabase: ${error.message}`);
+          }
+        } catch (err: any) {
+          alert(`Error saat generate serial key ke cloud: ${err.message}`);
+        }
+        return;
+      }
+    }
+
+    // Fallback local
     const newKeys = LocalDB.generateSerialKeys(genQuantity);
     loadAdminData();
     setLogMessages(prev => [
-      `Admin berhasil menghasilkan ${genQuantity} Kode Serial baru secara massal.`,
+      `Admin berhasil menghasilkan ${genQuantity} Kode Serial baru secara massal di penyimpanan lokal.`,
       ...prev
     ]);
   };
@@ -92,6 +161,13 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
       if (supabase) {
         try {
           const nextIsPro = !currentIsPro;
+          
+          let userSerialKey: string | null = null;
+          const userObj = users.find(u => u.username === username);
+          if (userObj) {
+            userSerialKey = userObj.serial_key;
+          }
+
           const { error } = await supabase
             .from('profiles')
             .update({
@@ -102,6 +178,18 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
             .eq('id', username);
           
           if (!error) {
+            // Bebaskan key jika status diturunkan
+            if (!nextIsPro && userSerialKey && dbHasSerialKeysTable) {
+              await supabase
+                .from('serial_keys')
+                .update({
+                  is_used: false,
+                  used_by: null,
+                  activated_at: null
+                })
+                .eq('key', userSerialKey);
+            }
+
             setLogMessages(prev => [
               `Admin memperbarui status PRO akun di Supabase (ID: ${username}) menjadi ${nextIsPro ? 'PRO' : 'TRIAL'}.`,
               ...prev
@@ -139,12 +227,30 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
       const supabase = getSupabaseClient();
       if (supabase) {
         try {
+          let userSerialKey: string | null = null;
+          const userObj = users.find(u => u.username === username);
+          if (userObj) {
+            userSerialKey = userObj.serial_key;
+          }
+
           const { error } = await supabase
             .from('profiles')
             .delete()
             .eq('id', username);
           
           if (!error) {
+            // Bebaskan key jika dihapus
+            if (userSerialKey && dbHasSerialKeysTable) {
+              await supabase
+                .from('serial_keys')
+                .update({
+                  is_used: false,
+                  used_by: null,
+                  activated_at: null
+                })
+                .eq('key', userSerialKey);
+            }
+
             setLogMessages(prev => [
               `Admin menghapus data profil pengguna (ID: ${username}) dari database Supabase.`,
               ...prev
@@ -212,6 +318,73 @@ export default function AdminTab({ currentUser, setLogMessages }: AdminTabProps)
           <span className="font-extrabold uppercase">Mode Konsol Administrator:</span> Anda sedang melihat data lisensi global dan manajemen user platform. Pastikan untuk menjaga kerahasiaan Kode Serial yang dihasilkan demi keadilan lisensi sekolah.
         </div>
       </div>
+
+      {/* Supabase Serial Keys Table Setup Notice */}
+      {isSupabaseModeActive() && !dbHasSerialKeysTable && (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-5 text-rose-900 space-y-3">
+          <div className="flex gap-3">
+            <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 animate-bounce" />
+            <div className="text-xs space-y-1">
+              <span className="font-extrabold uppercase text-rose-700">Tabel Serial Keys Belum Aktif di Supabase Cloud:</span>
+              <p>Untuk menyelaraskan Kode Serial secara real-time dan profesional di cloud, Anda harus membuat tabel <code>serial_keys</code> di Supabase SQL Editor Anda agar sinkronisasi multi-device berjalan sempurna.</p>
+            </div>
+          </div>
+          <div className="bg-slate-900 text-slate-100 rounded-xl p-3 font-mono text-[10px] whitespace-pre-wrap overflow-x-auto relative group max-h-40">
+            {`CREATE TABLE IF NOT EXISTS public.serial_keys (
+    key VARCHAR(50) PRIMARY KEY,
+    is_used BOOLEAN DEFAULT false,
+    used_by VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    activated_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Aktifkan Row Level Security (RLS)
+ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
+
+-- Kebijakan Akses
+CREATE POLICY "Admin full access" ON public.serial_keys TO authenticated USING (
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+) WITH CHECK (
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+);
+
+CREATE POLICY "Users read key" ON public.serial_keys FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Users update key" ON public.serial_keys FOR UPDATE TO authenticated USING (NOT is_used OR used_by = auth.uid()::text) WITH CHECK (used_by = auth.uid()::text);`}
+          </div>
+          <button
+            onClick={() => {
+              if (typeof navigator !== 'undefined') {
+                navigator.clipboard.writeText(`CREATE TABLE IF NOT EXISTS public.serial_keys (
+    key VARCHAR(50) PRIMARY KEY,
+    is_used BOOLEAN DEFAULT false,
+    used_by VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    activated_at TIMESTAMP WITH TIME ZONE
+);
+
+ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admin full access" ON public.serial_keys TO authenticated USING (
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+) WITH CHECK (
+    (auth.jwt() ->> 'email') = 'balkhi05@gmail.com' OR 
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+);
+
+CREATE POLICY "Users read key" ON public.serial_keys FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Users update key" ON public.serial_keys FOR UPDATE TO authenticated USING (NOT is_used OR used_by = auth.uid()::text) WITH CHECK (used_by = auth.uid()::text);`);
+                alert('SQL Schema berhasil disalin! Silakan tempel di SQL Editor Supabase Anda.');
+              }
+            }}
+            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+          >
+            Salin Kode SQL Schema
+          </button>
+        </div>
+      )}
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

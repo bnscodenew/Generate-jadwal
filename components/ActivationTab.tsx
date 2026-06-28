@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Key, CheckCircle, AlertCircle, CreditCard, Lock, ShieldCheck, HelpCircle, Sparkles } from 'lucide-react';
 import { LocalDB } from '../lib/db';
+import { getSupabaseClient, isSupabaseModeActive } from '../lib/supabaseClient';
 
 interface ActivationTabProps {
   currentUser: any;
@@ -16,31 +17,154 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleActivate = (e: React.FormEvent) => {
+  const handleActivate = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!serialKeyInput.trim()) {
+    const keyString = serialKeyInput.trim();
+    if (!keyString) {
       setErrorMsg('Masukkan kode serial terlebih dahulu.');
       return;
     }
 
     setLoading(true);
 
+    if (isSupabaseModeActive()) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          // Periksa apakah key ada di tabel serial_keys Supabase
+          const { data: keyData, error: fetchError } = await supabase
+            .from('serial_keys')
+            .select('*')
+            .eq('key', keyString.toUpperCase())
+            .single();
+
+          if (fetchError) {
+            console.error("Gagal memeriksa key di Supabase:", fetchError);
+            if (fetchError.code === 'PGRST116' || fetchError.message?.includes('does not exist')) {
+              // Jika tabel tidak ada atau baris tidak ditemukan, coba fallback ke LocalDB
+              const localKeys = LocalDB.getSerialKeys();
+              const hasLocal = localKeys.some(k => k.key.toUpperCase() === keyString.toUpperCase());
+              
+              if (hasLocal) {
+                const result = LocalDB.activateSerialKey(currentUser.username, keyString);
+                if (result.success) {
+                  // Sinkronkan status PRO ke profiles di Supabase jika profilnya ada
+                  await supabase
+                    .from('profiles')
+                    .update({
+                      is_pro: true,
+                      serial_key: keyString.toUpperCase(),
+                      activated_at: new Date().toISOString()
+                    })
+                    .eq('id', currentUser.username);
+
+                  setSuccessMsg("Selamat! Akun Anda berhasil diaktivasi ke Jadwalify PRO.");
+                  const updatedUser = {
+                    ...currentUser,
+                    is_pro: true,
+                    serial_key: keyString.toUpperCase(),
+                    activated_at: new Date().toISOString()
+                  };
+                  localStorage.setItem('sch_current_user', JSON.stringify(updatedUser));
+                  setCurrentUser(updatedUser);
+                  setLogMessages(prev => [`Akun @${currentUser.username} berhasil diaktivasi secara lokal & disinkronkan ke cloud.`, ...prev]);
+                  setSerialKeyInput('');
+                } else {
+                  setErrorMsg(result.message);
+                }
+              } else {
+                setErrorMsg('Kode serial tidak valid atau tidak ditemukan di database.');
+              }
+            } else {
+              setErrorMsg(`Gagal memeriksa lisensi: ${fetchError.message}`);
+            }
+            setLoading(false);
+            return;
+          }
+
+          if (keyData) {
+            if (keyData.is_used) {
+              setErrorMsg(`Kode serial sudah digunakan oleh pengguna lain.`);
+              setLoading(false);
+              return;
+            }
+
+            // Klaim key di tabel serial_keys
+            const { error: keyUpdateError } = await supabase
+              .from('serial_keys')
+              .update({
+                is_used: true,
+                used_by: currentUser.username,
+                activated_at: new Date().toISOString()
+              })
+              .eq('key', keyString.toUpperCase());
+
+            if (keyUpdateError) {
+              setErrorMsg(`Gagal mengklaim lisensi: ${keyUpdateError.message}`);
+              setLoading(false);
+              return;
+            }
+
+            // Perbarui status PRO di profiles Supabase
+            const { error: profileUpdateError } = await supabase
+              .from('profiles')
+              .update({
+                is_pro: true,
+                serial_key: keyString.toUpperCase(),
+                activated_at: new Date().toISOString()
+              })
+              .eq('id', currentUser.username);
+
+            if (profileUpdateError) {
+              setErrorMsg(`Gagal mengaktifkan profil PRO: ${profileUpdateError.message}`);
+              setLoading(false);
+              return;
+            }
+
+            // Berhasil! Perbarui local state & localStorage
+            const updatedUser = {
+              ...currentUser,
+              is_pro: true,
+              serial_key: keyString.toUpperCase(),
+              activated_at: new Date().toISOString()
+            };
+            localStorage.setItem('sch_current_user', JSON.stringify(updatedUser));
+            setCurrentUser(updatedUser);
+
+            // Selaraskan juga LocalDB agar tetap sinkron jika offline
+            LocalDB.updateUserProStatus(currentUser.username, true, keyString.toUpperCase());
+
+            setSuccessMsg("Selamat! Akun Anda berhasil diaktivasi ke Jadwalify PRO.");
+            setLogMessages(prev => [
+              `Akun @${currentUser.username} berhasil diaktivasi di Cloud menggunakan serial key ${keyString.toUpperCase()}.`,
+              ...prev
+            ]);
+            setSerialKeyInput('');
+          }
+        } catch (err: any) {
+          setErrorMsg(`Terjadi kesalahan sistem: ${err.message}`);
+        }
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Standard offline mode activation
     setTimeout(() => {
-      const result = LocalDB.activateSerialKey(currentUser.username, serialKeyInput);
+      const result = LocalDB.activateSerialKey(currentUser.username, keyString);
       setLoading(false);
 
       if (result.success) {
         setSuccessMsg(result.message);
-        // Refresh currentUser state
         const updatedUser = LocalDB.getCurrentUser();
         if (updatedUser) {
           setCurrentUser(updatedUser);
         }
         setLogMessages(prev => [
-          `Akun @${currentUser.username} berhasil diaktivasi menggunakan serial key.`,
+          `Akun @${currentUser.username} berhasil diaktivasi menggunakan serial key secara lokal.`,
           ...prev
         ]);
         setSerialKeyInput('');

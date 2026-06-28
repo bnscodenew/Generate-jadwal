@@ -69,6 +69,48 @@ CREATE POLICY "Admin dapat menghapus profil"
 
 
 -- =========================================================================
+-- 1B. TABLE: serial_keys
+-- Menyimpan Kode Serial Lisensi PRO untuk sinkronisasi cloud
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS public.serial_keys (
+    key VARCHAR(50) PRIMARY KEY,
+    is_used BOOLEAN DEFAULT false,
+    used_by VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    activated_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Mengaktifkan Row Level Security (RLS) pada serial_keys
+ALTER TABLE public.serial_keys ENABLE ROW LEVEL SECURITY;
+
+-- Kebijakan Akses (Policies) untuk serial_keys
+CREATE POLICY "Admin has full access to serial_keys"
+    ON public.serial_keys
+    TO authenticated
+    USING (
+        (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
+        OR
+        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+    )
+    WITH CHECK (
+        (auth.jwt() ->> 'email') = 'balkhi05@gmail.com'
+        OR
+        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'Administrator')
+    );
+
+CREATE POLICY "Users can read serial_keys to validate"
+    ON public.serial_keys FOR SELECT
+    TO authenticated
+    USING (true);
+
+CREATE POLICY "Users can update serial_keys to activate"
+    ON public.serial_keys FOR UPDATE
+    TO authenticated
+    USING (NOT is_used OR used_by = auth.uid()::text)
+    WITH CHECK (used_by = auth.uid()::text);
+
+
+-- =========================================================================
 -- 2. TABLE: teachers (Guru)
 -- Menyimpan biodata guru pengajar
 -- =========================================================================
