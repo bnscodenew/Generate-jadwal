@@ -613,4 +613,65 @@ export class SupabaseSyncService {
     };
     await this.syncSingleItem('teaching_assignments', action, payload);
   }
+
+  static async pushSchedulesOnly(schedules: Jadwal[], conflicts: KonflikJadwal[]): Promise<{ success: boolean; message: string }> {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return { success: false, message: 'Supabase tidak terkonfigurasi.' };
+    }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, message: 'Pengguna tidak terautentikasi.' };
+      }
+      const userId = user.id;
+
+      // Map schedules
+      const mappedSchedules = schedules.map(s => ({
+        id: IDMapper.getUUID(s.id),
+        assignment_id: s.assignment_id ? IDMapper.getUUID(s.assignment_id) : null,
+        guru_id: IDMapper.getUUID(s.guru_id),
+        mapel_id: IDMapper.getUUID(s.mapel_id),
+        kelas_id: IDMapper.getUUID(s.kelas_id),
+        ruangan_id: IDMapper.getUUID(s.ruangan_id),
+        hari: s.hari,
+        jam_ke: s.jam_ke,
+        user_id: userId
+      }));
+
+      // Delete all old schedules for this user first
+      await supabase.from('schedules').delete().eq('user_id', userId);
+
+      // Insert new ones
+      if (mappedSchedules.length > 0) {
+        const { error: upsertErr } = await supabase.from('schedules').insert(mappedSchedules);
+        if (upsertErr) throw new Error(`Gagal menyimpan draf jadwal: ${upsertErr.message}`);
+      }
+
+      // Map conflicts
+      const mappedConflicts = conflicts.map(c => ({
+        id: IDMapper.getUUID(c.id),
+        tipe_konflik: c.tipe_konflik,
+        deskripsi: c.deskripsi,
+        hari: c.hari,
+        jam_ke: c.jam_ke,
+        entities_involved: c.entities_involved || [],
+        user_id: userId
+      }));
+
+      // Delete all old conflicts for this user
+      await supabase.from('schedule_conflicts').delete().eq('user_id', userId);
+
+      // Insert new conflicts
+      if (mappedConflicts.length > 0) {
+        const { error: conflictErr } = await supabase.from('schedule_conflicts').insert(mappedConflicts);
+        if (conflictErr) throw new Error(`Gagal menyimpan laporan konflik: ${conflictErr.message}`);
+      }
+
+      return { success: true, message: 'Draf Jadwal Pelajaran & Laporan Konflik berhasil disimpan ke Cloud!' };
+    } catch (err: any) {
+      console.error('Error pushSchedulesOnly:', err);
+      return { success: false, message: err.message || String(err) };
+    }
+  }
 }

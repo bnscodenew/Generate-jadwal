@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Download, FileText, Info, Trash2, Calendar, Play, AlertTriangle, CheckCircle, HelpCircle, BarChart3, BookOpen, Users, Clock, Printer, X, Settings } from 'lucide-react';
+import { Download, FileText, Info, Trash2, Calendar, Play, AlertTriangle, CheckCircle, HelpCircle, BarChart3, BookOpen, Users, Clock, Printer, X, Settings, RefreshCw } from 'lucide-react';
 import { Guru, Kelas, MataPelajaran, Ruangan, JamPelajaran, Jadwal, Hari, KonflikJadwal, PengampuMataPelajaran } from '../lib/types';
 import { LocalDB } from '../lib/db';
 import { getInitialGuru } from '../lib/utils';
+import { isSupabaseModeActive } from '../lib/supabaseClient';
+import { SupabaseSyncService } from '../lib/supabaseSync';
 
 interface GridTabProps {
   guru: Guru[];
@@ -92,6 +94,62 @@ export default function GridTab({
   const [printCity, setPrintCity] = useState(() => {
     return LocalDB.getSchoolProfile()?.kota || 'Jakarta';
   });
+
+  const [isCloudSaving, setIsCloudSaving] = useState(false);
+  const [cloudSaveProgress, setCloudSaveProgress] = useState(0);
+  const [cloudSaveStep, setCloudSaveStep] = useState('');
+
+  const handlePushSchedulesToCloud = async () => {
+    setIsCloudSaving(true);
+    setCloudSaveProgress(5);
+    setCloudSaveStep('Menghubungkan ke Supabase...');
+    addLogMessage?.('☁️ Memulai penyimpanan draf jadwal ke Cloud Supabase...');
+    
+    try {
+      // Step 1: Init
+      await new Promise(r => setTimeout(r, 600));
+      setCloudSaveProgress(20);
+      setCloudSaveStep('Memverifikasi autentikasi sesi...');
+      
+      // Step 2: Clear old schedules
+      await new Promise(r => setTimeout(r, 500));
+      setCloudSaveProgress(45);
+      setCloudSaveStep('Pembersihan draf jadwal lama di cloud...');
+      
+      const resultPromise = SupabaseSyncService.pushSchedulesOnly(jadwal, conflicts);
+      
+      // Step 3: Insert schedules
+      await new Promise(r => setTimeout(r, 600));
+      setCloudSaveProgress(70);
+      setCloudSaveStep('Mengunggah data jadwal baru ke cloud...');
+      
+      // Step 4: Insert conflicts
+      await new Promise(r => setTimeout(r, 500));
+      setCloudSaveProgress(88);
+      setCloudSaveStep('Menganalisis & menyinkronkan laporan konflik...');
+      
+      const result = await resultPromise;
+      
+      if (result.success) {
+        setCloudSaveProgress(100);
+        setCloudSaveStep('Sinkronisasi Selesai!');
+        await new Promise(r => setTimeout(r, 800)); // allow user to view the gorgeous 100% checkmark!
+        
+        addLogMessage?.('✅ Berhasil menyimpan draf Jadwal & Laporan Konflik ke Cloud Supabase!');
+        alert('Draf Jadwal Pelajaran berhasil disimpan ke Cloud Supabase!');
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (err: any) {
+      console.error(err);
+      addLogMessage?.(`❌ Gagal menyimpan draf jadwal ke cloud: ${err.message || String(err)}`);
+      alert(`Gagal menyimpan draf jadwal ke cloud: ${err.message || String(err)}`);
+    } finally {
+      setIsCloudSaving(false);
+      setCloudSaveProgress(0);
+      setCloudSaveStep('');
+    }
+  };
 
   // Sync state whenever print modal is opened
   useEffect(() => {
@@ -680,6 +738,17 @@ export default function GridTab({
         </div>
 
         <div className="flex items-center gap-2">
+          {isSupabaseModeActive() && (
+            <button 
+              onClick={handlePushSchedulesToCloud}
+              disabled={isCloudSaving}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold rounded-lg text-xs transition cursor-pointer shrink-0 shadow-xs"
+              title="Simpan draf jadwal aktif ke database cloud Supabase"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isCloudSaving ? 'animate-spin' : ''}`} />
+              {isCloudSaving ? 'Menyimpan...' : 'Simpan ke Cloud'}
+            </button>
+          )}
           <button 
             onClick={isPro ? handleExportExcel : undefined}
             disabled={!isPro}
@@ -2480,6 +2549,72 @@ export default function GridTab({
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modern Cloud Sync Overlay with Progress Percentage */}
+      {isCloudSaving && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/80 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden p-6 mx-4">
+            <div className="flex flex-col items-center text-center">
+              {/* Spinning cloud icon inside a circle */}
+              <div className="relative mb-5">
+                <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600 animate-pulse">
+                  <RefreshCw className="w-8 h-8 animate-spin" style={{ animationDuration: '3s' }} />
+                </div>
+                <div className="absolute -bottom-1 -right-1 bg-indigo-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full border-2 border-white">
+                  {cloudSaveProgress}%
+                </div>
+              </div>
+
+              <h3 className="text-base font-bold text-slate-800 tracking-tight">Menyinkronkan ke Cloud Supabase</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                Sedang mengunggah data draf jadwal pelajaran dan laporan bentrok ke database cloud yang aman.
+              </p>
+
+              {/* Progress Bar Container */}
+              <div className="w-full bg-slate-100 h-2.5 rounded-full mt-6 overflow-hidden relative">
+                <div 
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${cloudSaveProgress}%` }}
+                />
+              </div>
+
+              {/* Progress Percentage & Status */}
+              <div className="w-full flex justify-between items-center mt-2.5 text-[11px] font-bold">
+                <span className="text-slate-500">{cloudSaveStep}</span>
+                <span className="text-emerald-600 font-mono">{cloudSaveProgress}%</span>
+              </div>
+
+              {/* Step checklist */}
+              <div className="w-full mt-6 space-y-2 border-t border-slate-100 pt-4 text-left">
+                <div className="flex items-center gap-2 text-xs">
+                  <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${cloudSaveProgress >= 20 ? 'bg-emerald-100 text-emerald-700 animate-scale-up' : 'bg-slate-100 text-slate-400'}`}>
+                    {cloudSaveProgress >= 20 ? '✓' : '1'}
+                  </div>
+                  <span className={`font-medium ${cloudSaveProgress >= 20 ? 'text-slate-700' : 'text-slate-400'}`}>Inisialisasi & Verifikasi Sesi</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${cloudSaveProgress >= 45 ? 'bg-emerald-100 text-emerald-700 animate-scale-up' : 'bg-slate-100 text-slate-400'}`}>
+                    {cloudSaveProgress >= 45 ? '✓' : '2'}
+                  </div>
+                  <span className={`font-medium ${cloudSaveProgress >= 45 ? 'text-slate-700' : 'text-slate-400'}`}>Restrukturasi Data & Pembersihan Cloud</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${cloudSaveProgress >= 70 ? 'bg-emerald-100 text-emerald-700 animate-scale-up' : 'bg-slate-100 text-slate-400'}`}>
+                    {cloudSaveProgress >= 70 ? '✓' : '3'}
+                  </div>
+                  <span className={`font-medium ${cloudSaveProgress >= 70 ? 'text-slate-700' : 'text-slate-400'}`}>Penyimpanan Jadwal Baru ke Database</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${cloudSaveProgress >= 88 ? 'bg-emerald-100 text-emerald-700 animate-scale-up' : 'bg-slate-100 text-slate-400'}`}>
+                    {cloudSaveProgress >= 88 ? '✓' : '4'}
+                  </div>
+                  <span className={`font-medium ${cloudSaveProgress >= 88 ? 'text-slate-700' : 'text-slate-400'}`}>Evaluasi & Pengunggahan Konflik Jadwal</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
