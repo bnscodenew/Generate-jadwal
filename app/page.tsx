@@ -362,7 +362,7 @@ export default function AdministrativeDashboard() {
 
   // Efek Sinkronisasi Latar Belakang (Auto-Pull) periodik setiap 10 detik untuk sinkronisasi multi-device
   useEffect(() => {
-    if (!isSupabaseModeActive() || !currentUser?.isGoogle) return;
+    if (!isSupabaseModeActive() || !currentUser) return;
 
     // Set initial sync time
     if (!lastSyncTime) {
@@ -410,7 +410,7 @@ export default function AdministrativeDashboard() {
   }, [currentUser]);
 
   const handleManualForceSync = async () => {
-    if (!isSupabaseModeActive() || !currentUser?.isGoogle) return;
+    if (!isSupabaseModeActive() || !currentUser) return;
     
     setBackgroundSyncStatus('checking');
     setLogMessages(prev => ["🔄 Memulai sinkronisasi manual paksa...", ...prev]);
@@ -470,10 +470,10 @@ export default function AdministrativeDashboard() {
       setCurrentUser(currUser);
     }
 
-    // Auto sync to cloud Supabase if active, not skipped, and we are logged in as a Google user!
-    const isGoogleUser = currUser?.isGoogle || false;
+    // Auto sync to cloud Supabase if active, not skipped, and we are logged in!
+    const isLoggedIntoSupabase = !!currUser;
 
-    if (isSupabaseModeActive() && !skipCloudSync && isGoogleUser) {
+    if (isSupabaseModeActive() && !skipCloudSync && isLoggedIntoSupabase) {
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current);
       }
@@ -824,7 +824,7 @@ export default function AdministrativeDashboard() {
     LocalDB.savePreferensi([...preferensi, defaultPref]);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncTeacher(created, 'upsert');
         await SupabaseSyncService.syncPreference(defaultPref, 'upsert');
@@ -858,7 +858,7 @@ export default function AdministrativeDashboard() {
         LocalDB.saveJadwal(filteredSched);
 
         // REAL-TIME DIRECT SUPABASE SYNC
-        if (isSupabaseModeActive() && currentUser?.isGoogle && target) {
+        if (isSupabaseModeActive() && currentUser && target) {
           try {
             await SupabaseSyncService.syncTeacher(target, 'delete');
             setLogMessages(prev => [`☁️ [Real-time] Berhasil menghapus Guru "${targetName}" langsung dari cloud!`, ...prev]);
@@ -880,7 +880,7 @@ export default function AdministrativeDashboard() {
     LocalDB.saveGuru(updated);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncTeacher(updatedGuru, 'upsert');
         setLogMessages(prev => [`☁️ [Real-time] Biodata guru ${updatedGuru.nama} berhasil diperbarui di cloud!`, ...prev]);
@@ -909,7 +909,7 @@ export default function AdministrativeDashboard() {
     LocalDB.saveMapel([...mapel, created]);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncSubject(created, 'upsert');
         setLogMessages(prev => [`☁️ [Real-time] Mata pelajaran "${created.nama_mapel}" berhasil ditambahkan ke cloud!`, ...prev]);
@@ -936,7 +936,7 @@ export default function AdministrativeDashboard() {
         LocalDB.saveJadwal(jadwal.filter(s => s.mapel_id !== id));
 
         // REAL-TIME DIRECT SUPABASE SYNC
-        if (isSupabaseModeActive() && currentUser?.isGoogle && target) {
+        if (isSupabaseModeActive() && currentUser && target) {
           try {
             await SupabaseSyncService.syncSubject(target, 'delete');
             setLogMessages(prev => [`☁️ [Real-time] Berhasil menghapus Mapel "${targetName}" langsung dari cloud!`, ...prev]);
@@ -969,7 +969,7 @@ export default function AdministrativeDashboard() {
     LocalDB.saveKelas([...kelas, created]);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncClass(created, 'upsert');
         setLogMessages(prev => [`☁️ [Real-time] Kelas "${created.nama_kelas}" berhasil ditambahkan ke cloud!`, ...prev]);
@@ -996,7 +996,7 @@ export default function AdministrativeDashboard() {
         LocalDB.saveJadwal(jadwal.filter(s => s.kelas_id !== id));
 
         // REAL-TIME DIRECT SUPABASE SYNC
-        if (isSupabaseModeActive() && currentUser?.isGoogle && target) {
+        if (isSupabaseModeActive() && currentUser && target) {
           try {
             await SupabaseSyncService.syncClass(target, 'delete');
             setLogMessages(prev => [`☁️ [Real-time] Berhasil menghapus Kelas "${targetName}" langsung dari cloud!`, ...prev]);
@@ -1027,7 +1027,7 @@ export default function AdministrativeDashboard() {
     LocalDB.saveRuangan([...ruangan, created]);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncRoom(created, 'upsert');
         setLogMessages(prev => [`☁️ [Real-time] Ruangan "${created.nama_ruangan}" berhasil ditambahkan ke cloud!`, ...prev]);
@@ -1053,7 +1053,7 @@ export default function AdministrativeDashboard() {
         LocalDB.saveJadwal(jadwal.filter(s => s.ruangan_id !== id));
 
         // REAL-TIME DIRECT SUPABASE SYNC
-        if (isSupabaseModeActive() && currentUser?.isGoogle && target) {
+        if (isSupabaseModeActive() && currentUser && target) {
           try {
             await SupabaseSyncService.syncRoom(target, 'delete');
             setLogMessages(prev => [`☁️ [Real-time] Berhasil menghapus Ruangan "${targetName}" langsung dari cloud!`, ...prev]);
@@ -1087,7 +1087,7 @@ export default function AdministrativeDashboard() {
     LocalDB.savePengampu([...pengampu, created]);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncAssignment(created, 'upsert');
         setLogMessages(prev => [`☁️ [Real-time] Tugas pengampu berhasil ditambahkan ke cloud!`, ...prev]);
@@ -1116,7 +1116,7 @@ export default function AdministrativeDashboard() {
         LocalDB.saveJadwal(jadwal.filter(s => s.assignment_id !== id));
 
         // REAL-TIME DIRECT SUPABASE SYNC
-        if (isSupabaseModeActive() && currentUser?.isGoogle && target) {
+        if (isSupabaseModeActive() && currentUser && target) {
           try {
             await SupabaseSyncService.syncAssignment(target, 'delete');
             setLogMessages(prev => [`☁️ [Real-time] Berhasil menghapus Tugas Pengampu langsung dari cloud!`, ...prev]);
@@ -1164,7 +1164,7 @@ export default function AdministrativeDashboard() {
     LocalDB.savePreferensi(newPrefList);
 
     // REAL-TIME DIRECT SUPABASE SYNC
-    if (isSupabaseModeActive() && currentUser?.isGoogle) {
+    if (isSupabaseModeActive() && currentUser) {
       try {
         await SupabaseSyncService.syncPreference(updated, 'upsert');
         setLogMessages(prev => [`☁️ [Real-time] Preferensi guru berhasil diselaraskan ke cloud!`, ...prev]);

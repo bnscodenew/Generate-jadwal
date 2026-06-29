@@ -52,6 +52,8 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
                 const result = LocalDB.activateSerialKey(currentUser.username, keyString);
                 if (result.success) {
                   // Sinkronkan status PRO ke profiles di Supabase jika profilnya ada
+                  const { data: { user } } = await supabase.auth.getUser();
+                  const profileTargetId = user?.id || currentUser.username;
                   await supabase
                     .from('profiles')
                     .update({
@@ -59,7 +61,7 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
                       serial_key: keyString.toUpperCase(),
                       activated_at: new Date().toISOString()
                     })
-                    .eq('id', currentUser.username);
+                    .eq('id', profileTargetId);
 
                   setSuccessMsg("Selamat! Akun Anda berhasil diaktivasi ke Jadwalify PRO.");
                   const updatedUser = {
@@ -109,6 +111,8 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
             }
 
             // Perbarui status PRO di profiles Supabase
+            const { data: { user } } = await supabase.auth.getUser();
+            const profileTargetId = user?.id || currentUser.username;
             const { error: profileUpdateError } = await supabase
               .from('profiles')
               .update({
@@ -116,7 +120,7 @@ export default function ActivationTab({ currentUser, setCurrentUser, setLogMessa
                 serial_key: keyString.toUpperCase(),
                 activated_at: new Date().toISOString()
               })
-              .eq('id', currentUser.username);
+              .eq('id', profileTargetId);
 
             if (profileUpdateError) {
               setErrorMsg(`Gagal mengaktifkan profil PRO: ${profileUpdateError.message}`);
