@@ -171,6 +171,29 @@ export default function AdministrativeDashboard() {
             .maybeSingle();
           if (!error && data) {
             dbProfile = data;
+          } else if (!error && !data) {
+            // Profile does not exist, let's create a default profile on the fly!
+            const defaultSchoolName = sbUser.user_metadata?.school_name || sbUser.user_metadata?.nama_sekolah || 'SMAN 1 AI INDONESIA';
+            const defaultRole = sbUser.email?.toLowerCase() === 'balkhi05@gmail.com' ? 'admin' : 'user';
+            
+            const { data: newProfile, error: insertError } = await supabase
+              .from('profiles')
+              .insert({
+                id: sbUser.id,
+                nama_sekolah: defaultSchoolName,
+                is_pro: false,
+                email: sbUser.email,
+                role: defaultRole
+              })
+              .select('nama_sekolah, is_pro, serial_key, activated_at, role')
+              .maybeSingle();
+              
+            if (!insertError && newProfile) {
+              dbProfile = newProfile;
+              console.log("Profile baru otomatis dibuat di Supabase profiles.");
+            } else if (insertError) {
+              console.error("Gagal membuat profile baru otomatis:", insertError.message);
+            }
           }
         } catch (dbErr) {
           console.error("Gagal membaca profiles dari Supabase:", dbErr);

@@ -51,18 +51,59 @@ export async function POST(req: NextRequest) {
               const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
 
               if (isUuid) {
-                const { error } = await supabase
+                // Check if profile already exists in the profiles table
+                const { data: existingProfile, error: fetchErr } = await supabase
                   .from("profiles")
-                  .update({
-                    is_pro: true,
-                    activated_at: new Date().toISOString()
-                  })
-                  .eq("id", userId);
+                  .select("id")
+                  .eq("id", userId)
+                  .maybeSingle();
 
-                if (error) {
-                  console.error(`Gagal mengupdate profile user ${userId} ke PRO di Supabase:`, error.message);
+                if (existingProfile) {
+                  const { error } = await supabase
+                    .from("profiles")
+                    .update({
+                      is_pro: true,
+                      activated_at: new Date().toISOString()
+                    })
+                    .eq("id", userId);
+
+                  if (error) {
+                    console.error(`Gagal mengupdate profile user ${userId} ke PRO di Supabase:`, error.message);
+                  } else {
+                    console.log(`SUKSES WEBHOOK: Akun user UUID ${userId} telah diperbarui ke status PRO!`);
+                  }
                 } else {
-                  console.log(`SUKSES WEBHOOK: Akun user UUID ${userId} telah diperbarui ke status PRO!`);
+                  console.log(`Profile UUID ${userId} belum ada di tabel profiles. Membuat baru dengan status PRO...`);
+                  let email = null;
+                  let namaSekolah = "SMAN 1 AI INDONESIA";
+                  try {
+                    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
+                    if (!userError && userData?.user) {
+                      email = userData.user.email;
+                      namaSekolah = userData.user.user_metadata?.school_name || userData.user.user_metadata?.nama_sekolah || "SMAN 1 AI INDONESIA";
+                    } else if (userError) {
+                      console.warn("Gagal mengambil info user dari auth.admin.getUserById:", userError.message);
+                    }
+                  } catch (err: any) {
+                    console.warn("Kesalahan saat mengambil info user dari auth.admin:", err.message || err);
+                  }
+
+                  const { error } = await supabase
+                    .from("profiles")
+                    .insert({
+                      id: userId,
+                      nama_sekolah: namaSekolah,
+                      is_pro: true,
+                      activated_at: new Date().toISOString(),
+                      email: email,
+                      role: 'user'
+                    });
+
+                  if (error) {
+                    console.error(`Gagal memasukkan profile baru untuk user ${userId} ke Supabase:`, error.message);
+                  } else {
+                    console.log(`SUKSES WEBHOOK: Profile baru berhasil dibuat dan status diset ke PRO untuk user UUID ${userId}!`);
+                  }
                 }
               } else {
                 console.log(`Bukan UUID, mencari profile dengan mencocokkan email untuk: ${userId}`);
